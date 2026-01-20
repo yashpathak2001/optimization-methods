@@ -1,0 +1,4186 @@
+// Optimization Methods Visualizer
+// Frontend logic: graph builder + algorithms + stepper + code highlighting
+
+// --- DOM helpers ---------------------------------------------------------
+const $ = (id) => document.getElementById(id);
+
+window.addEventListener("DOMContentLoaded", () => {
+  const algorithmSelect = $("algorithm-select");
+  const startNodeSelect = $("start-node-select");
+  const speedRange = $("speed-range");
+  const languageSelect = $("language-select");
+  const pseudoPanel = $("pseudo-panel");
+  const codePanel = $("code-panel");
+  const defaultGraphSelect = $("default-graph-select");
+
+  const btnAddNode = $("btn-add-node");
+  const btnRemoveNode = $("btn-remove-node");
+  const btnAddEdge = $("btn-add-edge");
+  const btnResetGraph = $("btn-reset-graph");
+  const btnRunAuto = $("btn-run-auto");
+  const btnPrev = $("btn-prev");
+  const btnNext = $("btn-next");
+  const btnRestart = $("btn-restart");
+  const btnCenterGraph = $("btn-center-graph");
+  const btnCenterParent = $("btn-center-parent");
+
+  const nodeLabelInput = $("node-label");
+  const edgeFromInput = $("edge-from");
+  const edgeToInput = $("edge-to");
+  const edgeWeightInput = $("edge-weight");
+  const chkDirected = $("chk-directed");
+  const chkPhysics = $("chk-physics");
+
+  const graphCanvas = $("graph-canvas");
+  const parentCanvas = $("parent-canvas");
+  const stepIndexLabel = $("step-index");
+  const stepTotalLabel = $("step-total");
+  const stepDescription = $("step-description");
+  const distanceList = $("distance-list");
+  const statusLabel = $("status-label");
+  const speedValueLabel = $("speed-value");
+  const timeBigOEl = $("time-big-o");
+  const spaceBigOEl = $("space-big-o");
+  const timeProgressEl = $("time-progress");
+  const spaceProgressEl = $("space-progress");
+  const variableListEl = $("variable-list");
+  
+  // New feature DOM elements
+  const btnAlgorithmInfo = $("btn-algorithm-info");
+  const btnHelp = $("btn-help");
+  const btnExport = $("btn-export");
+  const btnImport = $("btn-import");
+  const btnCompare = $("btn-compare");
+  const btnPause = $("btn-pause");
+  const btnJump = $("btn-jump");
+  const stepJumpInput = $("step-jump-input");
+  const chkLabels = $("chk-labels");
+  const importFileInput = $("import-file-input");
+  
+  const algorithmInfoPanel = $("algorithm-info-panel");
+  const graphStatsPanel = $("graph-stats-panel");
+  const pathReconstructionPanel = $("path-reconstruction-panel");
+  const algorithmStatsPanel = $("algorithm-stats-panel");
+  const performancePanel = $("performance-panel");
+  const comparisonModal = $("comparison-modal");
+  const tutorialModal = $("tutorial-modal");
+  const pathTargetSelect = $("path-target-select");
+  const pathDisplay = $("path-display");
+  const pathVisual = $("path-visual");
+  
+  let labelsVisible = true;
+  let isPaused = false;
+  let comparisonMode = false;
+
+  // --- Helpers for node labels/colors ------------------------------------
+  function idToLabel(id) {
+    const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    let n = id;
+    let result = "";
+    do {
+      result = alphabet[n % 26] + result;
+      n = Math.floor(n / 26) - 1;
+    } while (n >= 0);
+    return result;
+  }
+
+  function nodeBaseColor(id) {
+    const palette = [
+      "#38bdf8",
+      "#a855f7",
+      "#f97316",
+      "#22c55e",
+      "#eab308",
+      "#6366f1",
+      "#ec4899",
+    ];
+    return palette[id % palette.length];
+  }
+
+  // --- Graph state & vis-network setup -----------------------------------
+  const nodeData = new vis.DataSet([]);
+  const edgeData = new vis.DataSet([]);
+
+  const physicsOptions = {
+    enabled: true,
+    solver: "forceAtlas2Based",
+    forceAtlas2Based: {
+      springLength: 110,
+      gravitationalConstant: -55,
+      centralGravity: 0.02,
+      springConstant: 0.045,
+    },
+    stabilization: {
+      iterations: 120,
+      updateInterval: 20,
+    },
+  };
+
+  const graphNetwork = new vis.Network(
+    graphCanvas,
+    { nodes: nodeData, edges: edgeData },
+    {
+      interaction: {
+        hover: true,
+        dragNodes: true,
+        zoomView: true,
+      },
+      physics: physicsOptions,
+      nodes: {
+        shape: "dot",
+        size: 22,
+        font: { color: "#e5e7eb", size: 16 },
+        borderWidth: 1,
+      },
+      edges: {
+        arrows: { to: { enabled: true, scaleFactor: 0.8 } },
+        smooth: { type: "dynamic" },
+        font: { color: "#e5e7eb", size: 12, background: "rgba(15,23,42,0.85)" },
+        width: 1.5,
+      },
+    }
+  );
+
+  const parentNetwork = new vis.Network(
+    parentCanvas,
+    { nodes: new vis.DataSet([]), edges: new vis.DataSet([]) },
+    {
+      interaction: {
+        dragNodes: false,
+        zoomView: true,
+        selectable: false,
+      },
+      physics: {
+        enabled: false,
+      },
+      layout: {
+        hierarchical: {
+          enabled: true,
+          direction: "UD",
+          sortMethod: "directed",
+          nodeSpacing: 250,
+          levelSeparation: 200,
+          treeSpacing: 300,
+          parentCentralization: true,
+          shakeTowards: "leaves",
+        },
+      },
+      nodes: {
+        shape: "circle",
+        size: 35,
+        font: {
+          color: "#e5e7eb",
+          size: 16,
+          face: "Arial",
+          align: "right",
+          vadjust: 0,
+        },
+        borderWidth: 2,
+        margin: 12,
+      },
+      edges: {
+        arrows: { to: { enabled: true, scaleFactor: 0.7 } },
+        smooth: false,
+        font: {
+          size: 16,
+          color: "#ffffff",
+          strokeWidth: 0,
+          align: "horizontal",
+          vadjust: -10,
+        },
+        width: 2,
+        labelHighlightBold: false,
+      },
+    }
+  );
+
+  if (btnCenterGraph) {
+    btnCenterGraph.addEventListener("click", () => {
+      const nodes = nodeData.get();
+      if (!nodes.length) return;
+      graphNetwork.fit({
+        animation: {
+          duration: 300,
+          easingFunction: "easeInOutQuad",
+        },
+        padding: 80,
+      });
+    });
+  }
+
+  if (btnCenterParent) {
+    btnCenterParent.addEventListener("click", () => {
+      const parentNodes = parentNetwork.body.data.nodes.get();
+      if (!parentNodes.length) return;
+      parentNetwork.fit({
+        animation: {
+          duration: 300,
+          easingFunction: "easeInOutQuad",
+        },
+        padding: 80,
+      });
+    });
+  }
+
+  // Zoom controls for parent network
+  const btnZoomInParent = $("btn-zoom-in-parent");
+  const btnZoomOutParent = $("btn-zoom-out-parent");
+  
+  if (btnZoomInParent) {
+    btnZoomInParent.addEventListener("click", () => {
+      const scale = parentNetwork.getScale();
+      parentNetwork.moveTo({
+        scale: Math.min(scale * 1.2, 5),
+        animation: {
+          duration: 200,
+          easingFunction: "easeInOutQuad",
+        },
+      });
+    });
+  }
+
+  if (btnZoomOutParent) {
+    btnZoomOutParent.addEventListener("click", () => {
+      const scale = parentNetwork.getScale();
+      parentNetwork.moveTo({
+        scale: Math.max(scale * 0.8, 0.1),
+        animation: {
+          duration: 200,
+          easingFunction: "easeInOutQuad",
+        },
+      });
+    });
+  }
+
+  // Zoom controls for graph network
+  const btnZoomInGraph = $("btn-zoom-in-graph");
+  const btnZoomOutGraph = $("btn-zoom-out-graph");
+  
+  if (btnZoomInGraph) {
+    btnZoomInGraph.addEventListener("click", () => {
+      const scale = graphNetwork.getScale();
+      graphNetwork.moveTo({
+        scale: Math.min(scale * 1.2, 5),
+        animation: {
+          duration: 200,
+          easingFunction: "easeInOutQuad",
+        },
+      });
+    });
+  }
+
+  if (btnZoomOutGraph) {
+    btnZoomOutGraph.addEventListener("click", () => {
+      const scale = graphNetwork.getScale();
+      graphNetwork.moveTo({
+        scale: Math.max(scale * 0.8, 0.1),
+        animation: {
+          duration: 200,
+          easingFunction: "easeInOutQuad",
+        },
+      });
+    });
+  }
+
+  chkPhysics.addEventListener("change", () => {
+    graphNetwork.setOptions({
+      physics: { ...physicsOptions, enabled: chkPhysics.checked },
+    });
+  });
+
+  // --- Graph builder logic -----------------------------------------------
+  let nextNodeId = 0;
+
+  function refreshStartNodeOptions() {
+    const nodes = nodeData.get();
+    startNodeSelect.innerHTML = "";
+    if (!nodes.length) {
+      const opt = document.createElement("option");
+      opt.value = "";
+      opt.textContent = "No nodes in the graph";
+      opt.disabled = true;
+      opt.selected = true;
+      startNodeSelect.appendChild(opt);
+      startNodeSelect.disabled = true;
+      updateStepControls();
+      return;
+    }
+    startNodeSelect.disabled = false;
+    for (const n of nodes) {
+      const displayLabel = n.label || idToLabel(n.id);
+      const opt = document.createElement("option");
+      opt.value = String(n.id);
+      opt.textContent = displayLabel;
+      startNodeSelect.appendChild(opt);
+    }
+    updateStepControls();
+  }
+
+  function addNode() {
+    const id = nextNodeId++;
+    const customLabel =
+      (nodeLabelInput && nodeLabelInput.value.trim()) || idToLabel(id);
+    nodeData.add({
+      id,
+      label: customLabel,
+      color: {
+        background: "rgba(15,23,42,0.9)",
+        border: nodeBaseColor(id),
+        highlight: {
+          background: nodeBaseColor(id),
+          border: nodeBaseColor(id),
+        },
+      },
+    });
+    if (nodeLabelInput) {
+      nodeLabelInput.value = "";
+    }
+    refreshStartNodeOptions();
+  }
+
+  function removeNode() {
+    const all = nodeData.get();
+    if (!all.length) return;
+    const last = all[all.length - 1];
+    nodeData.remove(last.id);
+    const toRemove = edgeData
+      .get()
+      .filter((e) => e.from === last.id || e.to === last.id)
+      .map((e) => e.id);
+    edgeData.remove(toRemove);
+    refreshStartNodeOptions();
+  }
+
+  function addEdgeManual() {
+    const from = parseInt(edgeFromInput.value, 10);
+    const to = parseInt(edgeToInput.value, 10);
+    const w = parseFloat(edgeWeightInput.value);
+    if (Number.isNaN(from) || Number.isNaN(to) || Number.isNaN(w)) {
+      flashStatus("Enter valid from/to/weight for edge.", true);
+      return;
+    }
+    if (!nodeData.get(from) || !nodeData.get(to)) {
+      flashStatus("Both endpoints must exist as nodes.", true);
+      return;
+    }
+    const directed = chkDirected.checked;
+    const id = `${from}-${to}-${Date.now()}`;
+    edgeData.add({
+      id,
+      from,
+      to,
+      arrows: directed ? "to" : "",
+      label: String(w),
+      weight: w,
+    });
+    if (!directed && from !== to) {
+      const id2 = `${to}-${from}-${Date.now()}-r`;
+      edgeData.add({
+        id: id2,
+        from: to,
+        to: from,
+        arrows: "",
+        label: String(w),
+        weight: w,
+      });
+    }
+    edgeFromInput.value = "";
+    edgeToInput.value = "";
+    edgeWeightInput.value = "";
+  }
+
+  function resetGraph() {
+    nodeData.clear();
+    edgeData.clear();
+    parentNetwork.body.data.nodes.clear();
+    parentNetwork.body.data.edges.clear();
+    nextNodeId = 0;
+    defaultGraphSelect.value = "";
+    refreshStartNodeOptions();
+    clearSteps();
+    updateDistancesDisplay({});
+    flashStatus("Graph reset. Build a new graph or choose a preset.");
+  }
+
+  btnAddNode.addEventListener("click", addNode);
+  btnRemoveNode.addEventListener("click", removeNode);
+  btnAddEdge.addEventListener("click", addEdgeManual);
+  btnResetGraph.addEventListener("click", resetGraph);
+
+  // Default graphs
+  function loadDefaultGraph(kind) {
+    resetGraph();
+    if (!kind) return;
+
+    if (kind === "simple") {
+      for (let i = 0; i < 5; i++) addNode();
+      const edges = [
+        [0, 1, 4],
+        [0, 2, 2],
+        [1, 2, 1],
+        [1, 3, 5],
+        [2, 3, 8],
+        [2, 4, 10],
+        [3, 4, 2],
+      ];
+      for (const [f, t, w] of edges) {
+        edgeData.add({
+          id: `${f}-${t}`,
+          from: f,
+          to: t,
+          arrows: "to",
+          label: String(w),
+          weight: w,
+        });
+      }
+      flashStatus("Loaded simple demo graph.");
+    } else if (kind === "neg-cycle") {
+      for (let i = 0; i < 4; i++) addNode();
+      const edges = [
+        [0, 1, 1],
+        [1, 2, -1],
+        [2, 3, -1],
+        [3, 1, -1],
+        [0, 3, 4],
+      ];
+      for (const [f, t, w] of edges) {
+        edgeData.add({
+          id: `${f}-${t}`,
+          from: f,
+          to: t,
+          arrows: "to",
+          label: String(w),
+          weight: w,
+        });
+      }
+      flashStatus("Loaded negative cycle example (Bellman-Ford will detect).");
+    } else if (kind === "grid") {
+      const rows = 2;
+      const cols = 4;
+      const ids = [];
+      for (let r = 0; r < rows; r++) {
+        ids[r] = [];
+        for (let c = 0; c < cols; c++) {
+          const id = nextNodeId++;
+          nodeData.add({
+            id,
+            label: idToLabel(id),
+            color: {
+              background: "rgba(15,23,42,0.9)",
+              border: nodeBaseColor(id),
+            },
+          });
+          ids[r][c] = id;
+        }
+      }
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          if (c + 1 < cols) {
+            edgeData.add({
+              id: `${ids[r][c]}-${ids[r][c + 1]}`,
+              from: ids[r][c],
+              to: ids[r][c + 1],
+              arrows: "to",
+              label: "1",
+              weight: 1,
+            });
+          }
+          if (r + 1 < rows) {
+            edgeData.add({
+              id: `${ids[r][c]}-${ids[r + 1][c]}`,
+              from: ids[r][c],
+              to: ids[r + 1][c],
+              arrows: "to",
+              label: "2",
+              weight: 2,
+            });
+          }
+        }
+      }
+      refreshStartNodeOptions();
+      flashStatus("Loaded grid-like graph.");
+    }
+    refreshStartNodeOptions();
+  }
+
+  defaultGraphSelect.addEventListener("change", () => {
+    loadDefaultGraph(defaultGraphSelect.value);
+  });
+
+  // --- Algorithm step model ----------------------------------------------
+  let steps = [];
+  let currentStepIndex = 0;
+  let autoPlayTimer = null;
+
+  function clearSteps() {
+    steps = [];
+    currentStepIndex = 0;
+    stepIndexLabel.textContent = "0";
+    stepTotalLabel.textContent = "0";
+    stepDescription.textContent =
+      "Build a graph and press \"Auto Play\" or use \"Next\".";
+    updateAlgorithmTable(new Map(), new Map());
+    stopAutoPlay();
+    updateStepControls();
+    updateComplexityPanel(null);
+    updateVariablePanel(null);
+    // Reset new panels
+    if (pathDisplay) pathDisplay.textContent = "";
+    if (pathVisual) pathVisual.innerHTML = "";
+    if (pathTargetSelect) pathTargetSelect.innerHTML = '<option value="">Select target...</option>';
+    updateAlgorithmStatistics(null);
+    updatePerformanceMetrics(null);
+    updateGraphStatistics();
+  }
+
+  function stopAutoPlay() {
+    if (autoPlayTimer) {
+      clearInterval(autoPlayTimer);
+      autoPlayTimer = null;
+    }
+  }
+
+  function computeGraphFromState() {
+    const nodes = nodeData.get();
+    const edges = edgeData.get();
+    const adj = new Map();
+    for (const n of nodes) {
+      adj.set(n.id, []);
+    }
+    for (const e of edges) {
+      adj.get(e.from).push({ to: e.to, w: e.weight ?? parseFloat(e.label) });
+    }
+    return { nodes, edges, adj };
+  }
+
+  function createRelaxationSteps(source, variant) {
+    const { nodes, edges } = computeGraphFromState();
+    const dist = new Map();
+    const parent = new Map();
+    for (const n of nodes) {
+      dist.set(n.id, Infinity);
+      parent.set(n.id, null);
+    }
+    dist.set(source, 0);
+
+    const flatEdges = edges.map((e) => ({
+      from: e.from,
+      to: e.to,
+      w: e.weight ?? parseFloat(e.label),
+      id: e.id,
+    }));
+    const totalPasses =
+      variant === "relaxation" ? nodes.length - 1 : nodes.length * 2;
+    const out = [];
+
+    out.push({
+      label: "Initialization",
+      description: `Initialize all distances to ∞ except source ${idToLabel(
+        source
+      )}, which is 0.`,
+      dist: new Map(dist),
+      parent: new Map(parent),
+      highlightEdge: null,
+      highlightNode: source,
+      codeKey: "init",
+    });
+
+    for (let i = 0; i < totalPasses; i++) {
+      for (const e of flatEdges) {
+        const { from, to, w } = e;
+        const old = dist.get(to);
+        const cand = dist.get(from) + w;
+        const willRelax = cand < old;
+
+        const step = {
+          label: `Relax edge (${idToLabel(from)} → ${idToLabel(to)})`,
+          description: willRelax
+            ? `Relaxing edge ${idToLabel(
+                from
+              )}→${idToLabel(to)}: updating d[${idToLabel(
+                to
+              )}] from ${formatDist(old)} to ${formatDist(cand)}.`
+            : `Checking edge ${idToLabel(
+                from
+              )}→${idToLabel(
+                to
+              )}: no update since current distance is better.`,
+          dist: new Map(dist),
+          parent: new Map(parent),
+          highlightEdge: e.id,
+          highlightNode: to,
+          codeKey: "relax",
+          relaxedNode: willRelax ? to : null,
+          u: from,
+          v: to,
+          w: w,
+        };
+
+        if (willRelax) {
+          dist.set(to, cand);
+          parent.set(to, from);
+          step.dist = new Map(dist);
+          step.parent = new Map(parent);
+        }
+        out.push(step);
+      }
+    }
+    return out;
+  }
+
+  function createBellmanFordSteps(source, useFIFO) {
+    const { nodes, edges } = computeGraphFromState();
+    const dist = new Map();
+    const parent = new Map();
+    for (const n of nodes) {
+      dist.set(n.id, Infinity);
+      parent.set(n.id, null);
+    }
+    dist.set(source, 0);
+
+    const flatEdges = edges.map((e) => ({
+      from: e.from,
+      to: e.to,
+      w: e.weight ?? parseFloat(e.label),
+      id: e.id,
+    }));
+
+    const out = [];
+    out.push({
+      label: "Initialization",
+      description:
+        "Initialize distances and parents. Bellman-Ford can handle negative weights.",
+      dist: new Map(dist),
+      parent: new Map(parent),
+      highlightEdge: null,
+      highlightNode: source,
+      codeKey: "bf_init",
+    });
+
+    if (!useFIFO) {
+      const n = nodes.length;
+      for (let i = 1; i <= n - 1; i++) {
+        out.push({
+          label: `Pass ${i}`,
+          description: `Outer loop iteration ${i}/${n - 1}. Relax all edges.`,
+          dist: new Map(dist),
+          parent: new Map(parent),
+          highlightEdge: null,
+          highlightNode: null,
+          codeKey: "bf_outer",
+          iteration: i,
+        });
+        for (const e of flatEdges) {
+          const old = dist.get(e.to);
+          const cand = dist.get(e.from) + e.w;
+          const willRelax = cand < old;
+          const step = {
+            label: `Relax edge (${idToLabel(e.from)} → ${idToLabel(e.to)})`,
+            description: willRelax
+              ? `Relaxing edge ${idToLabel(
+                  e.from
+                )}→${idToLabel(e.to)}: updating d[${idToLabel(
+                  e.to
+                )}] from ${formatDist(old)} to ${formatDist(cand)}.`
+              : `Checking edge ${idToLabel(
+                  e.from
+                )}→${idToLabel(e.to)}: no update.`,
+            dist: new Map(dist),
+            parent: new Map(parent),
+            highlightEdge: e.id,
+            highlightNode: e.to,
+            codeKey: "bf_relax",
+            relaxedNode: willRelax ? e.to : null,
+            u: e.from,
+            v: e.to,
+            w: e.w,
+          };
+          if (willRelax) {
+            dist.set(e.to, cand);
+            parent.set(e.to, e.from);
+            step.dist = new Map(dist);
+            step.parent = new Map(parent);
+          }
+          out.push(step);
+        }
+      }
+      out.push({
+        label: "Negative cycle check",
+        description:
+          "Finally, check once more: if any edge can still be relaxed, there is a negative cycle.",
+        dist: new Map(dist),
+        parent: new Map(parent),
+        highlightEdge: null,
+        highlightNode: null,
+        codeKey: "bf_check",
+      });
+      for (const e of flatEdges) {
+        const old = dist.get(e.to);
+        const cand = dist.get(e.from) + e.w;
+        const relax = cand < old;
+        out.push({
+          label: `Check edge (${idToLabel(e.from)} → ${idToLabel(e.to)})`,
+          description: relax
+            ? `Edge ${idToLabel(
+                e.from
+              )}→${idToLabel(
+                e.to
+              )} can still be relaxed: negative cycle detected.`
+            : `Edge ${idToLabel(
+                e.from
+              )}→${idToLabel(e.to)} cannot be further relaxed.`,
+          dist: new Map(dist),
+          parent: new Map(parent),
+          highlightEdge: e.id,
+          highlightNode: e.to,
+          codeKey: relax ? "bf_neg_cycle" : "bf_check_edge",
+          negCycle: relax,
+          u: e.from,
+          v: e.to,
+          w: e.w,
+        });
+      }
+    } else {
+      // FIFO queue variant
+      const queue = [source];
+      const inQueue = new Set([source]);
+      out.push({
+        label: "Queue init",
+        description: `Initialize queue with source node ${idToLabel(source)}.`,
+        dist: new Map(dist),
+        parent: new Map(parent),
+        highlightEdge: null,
+        highlightNode: source,
+        codeKey: "fifo_init",
+      });
+
+      let relaxCount = 0;
+      const maxRelax = nodes.length * edges.length + 10;
+
+      while (queue.length && relaxCount < maxRelax) {
+        const u = queue.shift();
+        inQueue.delete(u);
+        out.push({
+          label: `Pop ${idToLabel(u)} from queue`,
+          description: `Processing node ${idToLabel(
+            u
+          )} from the front of the queue.`,
+          dist: new Map(dist),
+          parent: new Map(parent),
+          highlightEdge: null,
+          highlightNode: u,
+          codeKey: "fifo_pop",
+          u: u,
+        });
+
+        for (const e of flatEdges.filter((e) => e.from === u)) {
+          const old = dist.get(e.to);
+          const cand = dist.get(e.from) + e.w;
+          const willRelax = cand < old;
+          const step = {
+            label: `Try relax (${idToLabel(e.from)} → ${idToLabel(e.to)})`,
+            description: willRelax
+              ? `Relaxing ${idToLabel(
+                  e.from
+                )}→${idToLabel(
+                  e.to
+                )} and pushing ${idToLabel(
+                  e.to
+                )} to queue (if not there).`
+              : `No relaxation for ${idToLabel(
+                  e.from
+                )}→${idToLabel(e.to)}.`,
+            dist: new Map(dist),
+            parent: new Map(parent),
+            highlightEdge: e.id,
+            highlightNode: e.to,
+            codeKey: "fifo_relax",
+            relaxedNode: willRelax ? e.to : null,
+            queueSnapshot: [...queue],
+            u: e.from,
+            v: e.to,
+            w: e.w,
+          };
+          if (willRelax) {
+            dist.set(e.to, cand);
+            parent.set(e.to, e.from);
+            relaxCount++;
+            if (!inQueue.has(e.to)) {
+              queue.push(e.to);
+              inQueue.add(e.to);
+            }
+            step.dist = new Map(dist);
+            step.parent = new Map(parent);
+            step.queueSnapshot = [...queue];
+          }
+          out.push(step);
+        }
+      }
+      const hasNegCycle = relaxCount >= maxRelax;
+      out.push({
+        label: hasNegCycle ? "Negative cycle detected" : "Done",
+        description: hasNegCycle
+          ? "Too many relaxations detected: negative cycle reachable from source."
+          : "Queue is empty, FIFO Bellman-Ford terminates.",
+        dist: new Map(dist),
+        parent: new Map(parent),
+        highlightEdge: null,
+        highlightNode: null,
+        codeKey: hasNegCycle ? "fifo_neg_cycle" : "fifo_done",
+        negCycle: hasNegCycle,
+      });
+      
+      // Additional check: verify if any edge can still be relaxed
+      if (!hasNegCycle) {
+        out.push({
+          label: "Negative cycle check",
+          description: "Check if any edge can still be relaxed (negative cycle detection).",
+          dist: new Map(dist),
+          parent: new Map(parent),
+          highlightEdge: null,
+          highlightNode: null,
+          codeKey: "fifo_check",
+        });
+        for (const e of flatEdges) {
+          const old = dist.get(e.to);
+          const cand = dist.get(e.from) + e.w;
+          const relax = cand < old;
+          out.push({
+            label: `Check edge (${idToLabel(e.from)} → ${idToLabel(e.to)})`,
+            description: relax
+              ? `Edge ${idToLabel(
+                  e.from
+                )}→${idToLabel(
+                  e.to
+                )} can still be relaxed: negative cycle detected.`
+              : `Edge ${idToLabel(
+                  e.from
+                )}→${idToLabel(e.to)} cannot be further relaxed.`,
+            dist: new Map(dist),
+            parent: new Map(parent),
+            highlightEdge: e.id,
+            highlightNode: e.to,
+            codeKey: relax ? "fifo_neg_cycle" : "fifo_check_edge",
+            negCycle: relax,
+            u: e.from,
+            v: e.to,
+            w: e.w,
+          });
+        }
+      }
+    }
+    return out;
+  }
+
+  function formatDist(d) {
+    return d === Infinity ? "∞" : d.toFixed(1).replace(/\.0$/, "");
+  }
+
+  // --- New Algorithms: Dijkstra, Floyd-Warshall, A* --------------------
+  function createDijkstraSteps(source) {
+    const { nodes, edges } = computeGraphFromState();
+    const dist = new Map();
+    const parent = new Map();
+    const visited = new Set();
+    
+    for (const n of nodes) {
+      dist.set(n.id, Infinity);
+      parent.set(n.id, null);
+    }
+    dist.set(source, 0);
+    
+    const flatEdges = edges.map((e) => ({
+      from: e.from,
+      to: e.to,
+      w: e.weight ?? parseFloat(e.label),
+      id: e.id,
+    }));
+    
+    // Check for negative edges
+    const hasNegative = flatEdges.some(e => e.w < 0);
+    if (hasNegative) {
+      return [{
+        label: "Error: Negative edges detected",
+        description: "Dijkstra's algorithm requires non-negative edge weights.",
+        dist: new Map(dist),
+        parent: new Map(parent),
+        highlightEdge: null,
+        highlightNode: null,
+        codeKey: "error",
+      }];
+    }
+    
+    const out = [];
+    out.push({
+      label: "Initialization",
+      description: `Initialize all distances to ∞ except source ${idToLabel(source)}, which is 0.`,
+      dist: new Map(dist),
+      parent: new Map(parent),
+      highlightEdge: null,
+      highlightNode: source,
+      codeKey: "dijkstra_init",
+    });
+    
+    // Priority queue simulation (using array for simplicity)
+    const pq = nodes.map(n => ({ id: n.id, dist: dist.get(n.id) }));
+    
+    while (pq.length > 0) {
+      // Extract minimum
+      pq.sort((a, b) => dist.get(a.id) - dist.get(b.id));
+      const u = pq.shift();
+      
+      if (visited.has(u.id)) continue;
+      if (dist.get(u.id) === Infinity) break;
+      
+      visited.add(u.id);
+      
+      out.push({
+        label: `Extract minimum: ${idToLabel(u.id)}`,
+        description: `Selecting node ${idToLabel(u.id)} with distance ${formatDist(dist.get(u.id))}.`,
+        dist: new Map(dist),
+        parent: new Map(parent),
+        highlightEdge: null,
+        highlightNode: u.id,
+        codeKey: "dijkstra_extract",
+        u: u.id,
+      });
+      
+      // Relax neighbors
+      for (const e of flatEdges.filter(e => e.from === u.id && !visited.has(e.to))) {
+        const old = dist.get(e.to);
+        const cand = dist.get(u.id) + e.w;
+        const willRelax = cand < old;
+        
+        const step = {
+          label: `Relax edge (${idToLabel(u.id)} → ${idToLabel(e.to)})`,
+          description: willRelax
+            ? `Relaxing edge ${idToLabel(u.id)}→${idToLabel(e.to)}: updating d[${idToLabel(e.to)}] from ${formatDist(old)} to ${formatDist(cand)}.`
+            : `Checking edge ${idToLabel(u.id)}→${idToLabel(e.to)}: no update.`,
+          dist: new Map(dist),
+          parent: new Map(parent),
+          highlightEdge: e.id,
+          highlightNode: e.to,
+          codeKey: "dijkstra_relax",
+          relaxedNode: willRelax ? e.to : null,
+          u: u.id,
+          v: e.to,
+          w: e.w,
+        };
+        
+        if (willRelax) {
+          dist.set(e.to, cand);
+          parent.set(e.to, u.id);
+          step.dist = new Map(dist);
+          step.parent = new Map(parent);
+        }
+        out.push(step);
+      }
+    }
+    
+    out.push({
+      label: "Done",
+      description: "All reachable nodes processed.",
+      dist: new Map(dist),
+      parent: new Map(parent),
+      highlightEdge: null,
+      highlightNode: null,
+      codeKey: "dijkstra_done",
+    });
+    
+    return out;
+  }
+
+  function createFloydWarshallSteps() {
+    const { nodes, edges } = computeGraphFromState();
+    const n = nodes.length;
+    const nodeIds = nodes.map(n => n.id).sort((a, b) => a - b);
+    
+    // Initialize distance matrix
+    const dist = new Map();
+    const next = new Map();
+    
+    for (let i = 0; i < n; i++) {
+      for (let j = 0; j < n; j++) {
+        const key = `${nodeIds[i]}-${nodeIds[j]}`;
+        if (i === j) {
+          dist.set(key, 0);
+        } else {
+          dist.set(key, Infinity);
+        }
+        next.set(key, j);
+      }
+    }
+    
+    const flatEdges = edges.map((e) => ({
+      from: e.from,
+      to: e.to,
+      w: e.weight ?? parseFloat(e.label),
+      id: e.id,
+    }));
+    
+    // Set direct edges
+    for (const e of flatEdges) {
+      const key = `${e.from}-${e.to}`;
+      dist.set(key, e.w);
+    }
+    
+    const out = [];
+    out.push({
+      label: "Initialization",
+      description: "Initialize distance matrix: 0 for same node, ∞ for others, edge weights for direct edges.",
+      dist: new Map(),
+      parent: new Map(),
+      highlightEdge: null,
+      highlightNode: null,
+      codeKey: "fw_init",
+      fwMatrix: new Map(dist),
+    });
+    
+    // Floyd-Warshall main loop
+    for (let k = 0; k < n; k++) {
+      const kId = nodeIds[k];
+      out.push({
+        label: `Iteration k=${idToLabel(kId)}`,
+        description: `Considering paths through intermediate node ${idToLabel(kId)}.`,
+        dist: new Map(),
+        parent: new Map(),
+        highlightEdge: null,
+        highlightNode: kId,
+        codeKey: "fw_outer",
+        fwMatrix: new Map(dist),
+        k: kId,
+      });
+      
+      for (let i = 0; i < n; i++) {
+        for (let j = 0; j < n; j++) {
+          const iId = nodeIds[i];
+          const jId = nodeIds[j];
+          const ikKey = `${iId}-${kId}`;
+          const kjKey = `${kId}-${jId}`;
+          const ijKey = `${iId}-${jId}`;
+          
+          const distIK = dist.get(ikKey);
+          const distKJ = dist.get(kjKey);
+          const distIJ = dist.get(ijKey);
+          
+          if (distIK !== Infinity && distKJ !== Infinity) {
+            const newDist = distIK + distKJ;
+            if (newDist < distIJ) {
+              dist.set(ijKey, newDist);
+              next.set(ijKey, next.get(ikKey));
+              
+              out.push({
+                label: `Update: ${idToLabel(iId)} → ${idToLabel(jId)}`,
+                description: `Path ${idToLabel(iId)}→${idToLabel(kId)}→${idToLabel(jId)} is shorter: ${formatDist(newDist)} < ${formatDist(distIJ)}`,
+                dist: new Map(),
+                parent: new Map(),
+                highlightEdge: flatEdges.find(e => e.from === iId && e.to === jId)?.id || null,
+                highlightNode: jId,
+                codeKey: "fw_update",
+                fwMatrix: new Map(dist),
+                u: iId,
+                v: jId,
+                w: newDist,
+              });
+            }
+          }
+        }
+      }
+    }
+    
+    // Check for negative cycles
+    let hasNegCycle = false;
+    for (let i = 0; i < n; i++) {
+      const key = `${nodeIds[i]}-${nodeIds[i]}`;
+      if (dist.get(key) < 0) {
+        hasNegCycle = true;
+        break;
+      }
+    }
+    
+    out.push({
+      label: hasNegCycle ? "Negative cycle detected" : "Done",
+      description: hasNegCycle
+        ? "Negative cycle detected (diagonal has negative values)."
+        : "All-pairs shortest paths computed.",
+      dist: new Map(),
+      parent: new Map(),
+      highlightEdge: null,
+      highlightNode: null,
+      codeKey: hasNegCycle ? "fw_neg_cycle" : "fw_done",
+      fwMatrix: new Map(dist),
+      negCycle: hasNegCycle,
+    });
+    
+    return out;
+  }
+
+  function createAStarSteps(source, target) {
+    const { nodes, edges } = computeGraphFromState();
+    const dist = new Map();
+    const parent = new Map();
+    const gScore = new Map();
+    const fScore = new Map();
+    const openSet = new Set([source]);
+    const closedSet = new Set();
+    
+    // Simple heuristic: Euclidean distance (or Manhattan if positions not available)
+    function heuristic(a, b) {
+      const nodeA = nodes.find(n => n.id === a);
+      const nodeB = nodes.find(n => n.id === b);
+      if (nodeA && nodeB && nodeA.x !== undefined && nodeB.x !== undefined) {
+        const dx = nodeA.x - nodeB.x;
+        const dy = nodeA.y - nodeB.y;
+        return Math.sqrt(dx * dx + dy * dy) / 100; // Scale down
+      }
+      return 0; // Fallback: no heuristic
+    }
+    
+    const targetId = target !== null && target !== undefined ? target : (nodes.find(n => n.id !== source)?.id || source);
+    
+    for (const n of nodes) {
+      gScore.set(n.id, Infinity);
+      fScore.set(n.id, Infinity);
+      dist.set(n.id, Infinity);
+      parent.set(n.id, null);
+    }
+    gScore.set(source, 0);
+    fScore.set(source, heuristic(source, targetId));
+    dist.set(source, 0);
+    
+    const flatEdges = edges.map((e) => ({
+      from: e.from,
+      to: e.to,
+      w: e.weight ?? parseFloat(e.label),
+      id: e.id,
+    }));
+    
+    const out = [];
+    out.push({
+      label: "Initialization",
+      description: `Initialize g(s)=0, f(s)=h(s), openSet={${idToLabel(source)}}.`,
+      dist: new Map(dist),
+      parent: new Map(parent),
+      highlightEdge: null,
+      highlightNode: source,
+      codeKey: "astar_init",
+    });
+    
+    while (openSet.size > 0) {
+      // Find node with lowest fScore
+      let current = null;
+      let minF = Infinity;
+      for (const id of openSet) {
+        const f = fScore.get(id);
+        if (f < minF) {
+          minF = f;
+          current = id;
+        }
+      }
+      
+      if (current === null) break;
+      
+      if (current === targetId) {
+        out.push({
+          label: "Path found",
+          description: `Target ${idToLabel(targetId)} reached!`,
+          dist: new Map(dist),
+          parent: new Map(parent),
+          highlightEdge: null,
+          highlightNode: targetId,
+          codeKey: "astar_found",
+        });
+        break;
+      }
+      
+      openSet.delete(current);
+      closedSet.add(current);
+      
+      out.push({
+        label: `Process node: ${idToLabel(current)}`,
+        description: `Selecting node ${idToLabel(current)} with f=${formatDist(fScore.get(current))}.`,
+        dist: new Map(dist),
+        parent: new Map(parent),
+        highlightEdge: null,
+        highlightNode: current,
+        codeKey: "astar_extract",
+        u: current,
+      });
+      
+      for (const e of flatEdges.filter(e => e.from === current)) {
+        if (closedSet.has(e.to)) continue;
+        
+        const tentativeG = gScore.get(current) + e.w;
+        const oldG = gScore.get(e.to);
+        
+        if (tentativeG < oldG) {
+          parent.set(e.to, current);
+          gScore.set(e.to, tentativeG);
+          fScore.set(e.to, tentativeG + heuristic(e.to, targetId));
+          dist.set(e.to, tentativeG);
+          
+          if (!openSet.has(e.to)) {
+            openSet.add(e.to);
+          }
+          
+          out.push({
+            label: `Update neighbor: ${idToLabel(e.to)}`,
+            description: `Updating ${idToLabel(e.to)}: g=${formatDist(tentativeG)}, f=${formatDist(fScore.get(e.to))}.`,
+            dist: new Map(dist),
+            parent: new Map(parent),
+            highlightEdge: e.id,
+            highlightNode: e.to,
+            codeKey: "astar_update",
+            relaxedNode: e.to,
+            u: current,
+            v: e.to,
+            w: e.w,
+          });
+        }
+      }
+    }
+    
+    if (openSet.size === 0 && current !== targetId) {
+      out.push({
+        label: "No path found",
+        description: "Open set is empty, no path exists.",
+        dist: new Map(dist),
+        parent: new Map(parent),
+        highlightEdge: null,
+        highlightNode: null,
+        codeKey: "astar_no_path",
+      });
+    }
+    
+    return out;
+  }
+
+  // --- Code templates & highlighting -------------------------------------
+  const PSEUDO_TEMPLATES = {
+    relaxation: [
+      { key: "init", text: "for each vertex v: d[v] = ∞, parent[v] = NIL" },
+      { key: "init", text: "d[s] = 0" },
+      {
+        key: "relax_outer",
+        text: "repeat |V|-1 times:",
+      },
+      {
+        key: "relax",
+        text: "  for each edge (u,v,w):",
+      },
+      {
+        key: "relax",
+        text: "      if d[u] + w < d[v]:",
+      },
+      {
+        key: "relax",
+        text: "          d[v] = d[u] + w; parent[v] = u",
+      },
+    ],
+    "bellman-ford": [
+      { key: "bf_init", text: "for each vertex v: d[v] = ∞, parent[v] = NIL" },
+      { key: "bf_init", text: "d[s] = 0" },
+      {
+        key: "bf_outer",
+        text: "for i from 1 to |V|-1:",
+      },
+      {
+        key: "bf_relax",
+        text: "  for each edge (u,v,w):",
+      },
+      {
+        key: "bf_relax",
+        text: "      if d[u] + w < d[v]:",
+      },
+      {
+        key: "bf_relax",
+        text: "          d[v] = d[u] + w; parent[v] = u",
+      },
+      {
+        key: "bf_check",
+        text: "for each edge (u,v,w):",
+      },
+      {
+        key: "bf_neg_cycle",
+        text: "  if d[u] + w < d[v]: report negative cycle",
+      },
+    ],
+    "bellman-ford-fifo": [
+      {
+        key: "fifo_init",
+        text: "for each vertex v: d[v] = ∞, parent[v] = NIL; d[s] = 0",
+      },
+      { key: "fifo_init", text: "initialize FIFO queue Q with only s" },
+      { key: "fifo_pop", text: "while Q not empty:" },
+      { key: "fifo_pop", text: "  u = pop_front(Q)" },
+      {
+        key: "fifo_relax",
+        text: "  for each outgoing edge (u,v,w):",
+      },
+      {
+        key: "fifo_relax",
+        text: "      if d[u] + w < d[v]:",
+      },
+      {
+        key: "fifo_relax",
+        text: "          d[v] = d[u] + w; parent[v] = u",
+      },
+      {
+        key: "fifo_relax",
+        text: "          if v not in Q: push_back(Q, v)",
+      },
+    ],
+  };
+
+  const CODE_TEMPLATES = {
+    cpp: {
+      relaxation: [
+        { key: "init", text: "vector<double> d(n, INF); vector<int> parent(n, -1);" },
+        { key: "init", text: "d[s] = 0;" },
+        { key: "relax_outer", text: "for (int i = 0; i < n - 1; ++i) {" },
+        {
+          key: "relax",
+          text: "  for (auto &e : edges) { int u = e.u, v = e.v; double w = e.w;",
+        },
+        { key: "relax", text: "    if (d[u] + w < d[v]) {" },
+        { key: "relax", text: "      d[v] = d[u] + w; parent[v] = u;" },
+        { key: "relax", text: "    }" },
+        { key: "relax_outer", text: "  }" },
+        { key: "relax_outer", text: "}" },
+      ],
+      "bellman-ford": [
+        { key: "bf_init", text: "vector<double> d(n, INF); vector<int> parent(n, -1);" },
+        { key: "bf_init", text: "d[s] = 0;" },
+        { key: "bf_outer", text: "for (int i = 0; i < n - 1; ++i) {" },
+        {
+          key: "bf_relax",
+          text: "  for (auto &e : edges) { int u = e.u, v = e.v; double w = e.w;",
+        },
+        { key: "bf_relax", text: "    if (d[u] + w < d[v]) {" },
+        { key: "bf_relax", text: "      d[v] = d[u] + w; parent[v] = u;" },
+        { key: "bf_relax", text: "    }" },
+        { key: "bf_relax", text: "  }" },
+        { key: "bf_outer", text: "}" },
+        { key: "bf_check", text: "for (auto &e : edges) {" },
+        { key: "bf_neg_cycle", text: "  if (d[e.u] + e.w < d[e.v]) {" },
+        { key: "bf_neg_cycle", text: "    // negative cycle reachable from s" },
+        { key: "bf_neg_cycle", text: "  }" },
+        { key: "bf_check", text: "}" },
+      ],
+      "bellman-ford-fifo": [
+        {
+          key: "fifo_init",
+          text: "vector<double> d(n, INF); vector<int> parent(n, -1); d[s] = 0;",
+        },
+        {
+          key: "fifo_init",
+          text: "queue<int> q; vector<bool> inQ(n, false); q.push(s); inQ[s] = true;",
+        },
+        { key: "fifo_pop", text: "while (!q.empty()) {" },
+        { key: "fifo_pop", text: "  int u = q.front(); q.pop(); inQ[u] = false;" },
+        { key: "fifo_relax", text: "  for (auto &e : adj[u]) {" },
+        { key: "fifo_relax", text: "    int v = e.to; double w = e.w;" },
+        { key: "fifo_relax", text: "    if (d[u] + w < d[v]) {" },
+        { key: "fifo_relax", text: "      d[v] = d[u] + w; parent[v] = u;" },
+        { key: "fifo_relax", text: "      if (!inQ[v]) { q.push(v); inQ[v] = true; }" },
+        { key: "fifo_relax", text: "    }" },
+        { key: "fifo_relax", text: "  }" },
+        { key: "fifo_pop", text: "}" },
+      ],
+    },
+    c: {
+      relaxation: [
+        { key: "init", text: "for (int i = 0; i < n; ++i) { d[i] = INF; parent[i] = -1; }" },
+        { key: "init", text: "d[s] = 0;" },
+        { key: "relax_outer", text: "for (int i = 0; i < n - 1; ++i) {" },
+        {
+          key: "relax",
+          text: "  for (int e = 0; e < m; ++e) { int u = U[e], v = V[e]; double w = W[e];",
+        },
+        { key: "relax", text: "    if (d[u] + w < d[v]) {" },
+        { key: "relax", text: "      d[v] = d[u] + w; parent[v] = u;" },
+        { key: "relax", text: "    }" },
+        { key: "relax", text: "  }" },
+        { key: "relax_outer", text: "}" },
+      ],
+      "bellman-ford": [
+        { key: "bf_init", text: "for (int i = 0; i < n; ++i) { d[i] = INF; parent[i] = -1; }" },
+        { key: "bf_init", text: "d[s] = 0;" },
+        { key: "bf_outer", text: "for (int i = 0; i < n - 1; ++i) {" },
+        {
+          key: "bf_relax",
+          text: "  for (int e = 0; e < m; ++e) { int u = U[e], v = V[e]; double w = W[e];",
+        },
+        { key: "bf_relax", text: "    if (d[u] + w < d[v]) {" },
+        { key: "bf_relax", text: "      d[v] = d[u] + w; parent[v] = u;" },
+        { key: "bf_relax", text: "    }" },
+        { key: "bf_relax", text: "  }" },
+        { key: "bf_outer", text: "}" },
+        { key: "bf_check", text: "for (int e = 0; e < m; ++e) {" },
+        { key: "bf_neg_cycle", text: "  if (d[U[e]] + W[e] < d[V[e]]) {" },
+        { key: "bf_neg_cycle", text: "    // negative cycle" },
+        { key: "bf_neg_cycle", text: "  }" },
+        { key: "bf_check", text: "}" },
+      ],
+      "bellman-ford-fifo": [
+        {
+          key: "fifo_init",
+          text: "for (int i = 0; i < n; ++i) { d[i] = INF; inQ[i] = false; parent[i] = -1; }",
+        },
+        { key: "fifo_init", text: "d[s] = 0; push(q, s); inQ[s] = true;" },
+        { key: "fifo_pop", text: "while (!empty(q)) {" },
+        { key: "fifo_pop", text: "  int u = front(q); pop(q); inQ[u] = false;" },
+        { key: "fifo_relax", text: "  for (each edge (u,v,w)) {" },
+        { key: "fifo_relax", text: "    if (d[u] + w < d[v]) {" },
+        { key: "fifo_relax", text: "      d[v] = d[u] + w; parent[v] = u;" },
+        { key: "fifo_relax", text: "      if (!inQ[v]) { push(q, v); inQ[v] = true; }" },
+        { key: "fifo_relax", text: "    }" },
+        { key: "fifo_relax", text: "  }" },
+        { key: "fifo_pop", text: "}" },
+      ],
+    },
+    java: {
+      relaxation: [
+        { key: "init", text: "double[] d = new double[n]; int[] parent = new int[n];" },
+        { key: "init", text: "Arrays.fill(d, INF); Arrays.fill(parent, -1); d[s] = 0;" },
+        { key: "relax_outer", text: "for (int i = 0; i < n - 1; i++) {" },
+        {
+          key: "relax",
+          text: "  for (Edge e : edges) { int u = e.u, v = e.v; double w = e.w;",
+        },
+        { key: "relax", text: "    if (d[u] + w < d[v]) {" },
+        { key: "relax", text: "      d[v] = d[u] + w; parent[v] = u;" },
+        { key: "relax", text: "    }" },
+        { key: "relax", text: "  }" },
+        { key: "relax_outer", text: "}" },
+      ],
+      "bellman-ford": [
+        { key: "bf_init", text: "double[] d = new double[n]; int[] parent = new int[n];" },
+        { key: "bf_init", text: "Arrays.fill(d, INF); Arrays.fill(parent, -1); d[s] = 0;" },
+        { key: "bf_outer", text: "for (int i = 0; i < n - 1; i++) {" },
+        {
+          key: "bf_relax",
+          text: "  for (Edge e : edges) { int u = e.u, v = e.v; double w = e.w;",
+        },
+        { key: "bf_relax", text: "    if (d[u] + w < d[v]) {" },
+        { key: "bf_relax", text: "      d[v] = d[u] + w; parent[v] = u;" },
+        { key: "bf_relax", text: "    }" },
+        { key: "bf_relax", text: "  }" },
+        { key: "bf_outer", text: "}" },
+        { key: "bf_check", text: "for (Edge e : edges) {" },
+        { key: "bf_neg_cycle", text: "  if (d[e.u] + e.w < d[e.v]) {" },
+        { key: "bf_neg_cycle", text: "    // negative cycle" },
+        { key: "bf_neg_cycle", text: "  }" },
+        { key: "bf_check", text: "}" },
+      ],
+      "bellman-ford-fifo": [
+        {
+          key: "fifo_init",
+          text: "double[] d = new double[n]; boolean[] inQ = new boolean[n]; int[] parent = new int[n];",
+        },
+        {
+          key: "fifo_init",
+          text: "Arrays.fill(d, INF); Arrays.fill(parent, -1); d[s] = 0;",
+        },
+        {
+          key: "fifo_init",
+          text: "Queue<Integer> q = new ArrayDeque<>(); q.add(s); inQ[s] = true;",
+        },
+        { key: "fifo_pop", text: "while (!q.isEmpty()) {" },
+        { key: "fifo_pop", text: "  int u = q.remove(); inQ[u] = false;" },
+        { key: "fifo_relax", text: "  for (Edge e : adj[u]) {" },
+        { key: "fifo_relax", text: "    int v = e.v; double w = e.w;" },
+        { key: "fifo_relax", text: "    if (d[u] + w < d[v]) {" },
+        { key: "fifo_relax", text: "      d[v] = d[u] + w; parent[v] = u;" },
+        { key: "fifo_relax", text: "      if (!inQ[v]) { q.add(v); inQ[v] = true; }" },
+        { key: "fifo_relax", text: "    }" },
+        { key: "fifo_relax", text: "  }" },
+        { key: "fifo_pop", text: "}" },
+      ],
+    },
+    python: {
+      relaxation: [
+        { key: "init", text: "d = {v: float('inf') for v in V}; parent = {v: None for v in V}" },
+        { key: "init", text: "d[s] = 0" },
+        { key: "relax_outer", text: "for _ in range(len(V) - 1):" },
+        { key: "relax", text: "  for (u, v, w) in E:" },
+        { key: "relax", text: "      if d[u] + w < d[v]:" },
+        { key: "relax", text: "          d[v] = d[u] + w; parent[v] = u" },
+      ],
+      "bellman-ford": [
+        {
+          key: "bf_init",
+          text: "d = {v: float('inf') for v in V}; parent = {v: None for v in V}",
+        },
+        { key: "bf_init", text: "d[s] = 0" },
+        { key: "bf_outer", text: "for _ in range(len(V) - 1):" },
+        { key: "bf_relax", text: "  for (u, v, w) in E:" },
+        { key: "bf_relax", text: "      if d[u] + w < d[v]:" },
+        { key: "bf_relax", text: "          d[v] = d[u] + w; parent[v] = u" },
+        { key: "bf_check", text: "for (u, v, w) in E:" },
+        { key: "bf_neg_cycle", text: "  if d[u] + w < d[v]: print('negative cycle')" },
+      ],
+      "bellman-ford-fifo": [
+        {
+          key: "fifo_init",
+          text: "d = {v: float('inf') for v in V}; parent = {v: None for v in V}",
+        },
+        { key: "fifo_init", text: "d[s] = 0" },
+        { key: "fifo_init", text: "from collections import deque" },
+        { key: "fifo_init", text: "Q = deque([s]); inQ = {v: False for v in V}; inQ[s] = True" },
+        { key: "fifo_pop", text: "while Q:" },
+        { key: "fifo_pop", text: "  u = Q.popleft(); inQ[u] = False" },
+        { key: "fifo_relax", text: "  for (v, w) in adj[u]:" },
+        { key: "fifo_relax", text: "      if d[u] + w < d[v]:" },
+        { key: "fifo_relax", text: "          d[v] = d[u] + w; parent[v] = u" },
+        { key: "fifo_relax", text: "          if not inQ[v]: Q.append(v); inQ[v] = True" },
+      ],
+    },
+    rust: {
+      relaxation: [
+        { key: "init", text: "let mut d = vec![f64::INFINITY; n]; let mut parent = vec![None; n];" },
+        { key: "init", text: "d[s] = 0.0;" },
+        { key: "relax_outer", text: "for _ in 0..n - 1 {" },
+        { key: "relax", text: "  for &(u, v, w) in &edges {" },
+        { key: "relax", text: "      if d[u] + w < d[v] {" },
+        { key: "relax", text: "          d[v] = d[u] + w; parent[v] = Some(u);" },
+        { key: "relax", text: "      }" },
+        { key: "relax_outer", text: "  }" },
+        { key: "relax_outer", text: "}" },
+      ],
+      "bellman-ford": [
+        { key: "bf_init", text: "let mut d = vec![f64::INFINITY; n]; let mut parent = vec![None; n];" },
+        { key: "bf_init", text: "d[s] = 0.0;" },
+        { key: "bf_outer", text: "for _ in 0..n - 1 {" },
+        { key: "bf_relax", text: "  for &(u, v, w) in &edges {" },
+        { key: "bf_relax", text: "      if d[u] + w < d[v] {" },
+        { key: "bf_relax", text: "          d[v] = d[u] + w; parent[v] = Some(u);" },
+        { key: "bf_relax", text: "      }" },
+        { key: "bf_relax", text: "  }" },
+        { key: "bf_outer", text: "}" },
+        { key: "bf_check", text: "for &(u, v, w) in &edges {" },
+        { key: "bf_neg_cycle", text: "  if d[u] + w < d[v] { println!(\"negative cycle\"); }" },
+        { key: "bf_check", text: "}" },
+      ],
+      "bellman-ford-fifo": [
+        { key: "fifo_init", text: "let mut d = vec![f64::INFINITY; n]; let mut parent = vec![None; n];" },
+        { key: "fifo_init", text: "d[s] = 0.0;" },
+        { key: "fifo_init", text: "use std::collections::VecDeque;" },
+        { key: "fifo_init", text: "let mut q = VecDeque::new(); let mut in_q = vec![false; n];" },
+        { key: "fifo_init", text: "q.push_back(s); in_q[s] = true;" },
+        { key: "fifo_pop", text: "while let Some(u) = q.pop_front() {" },
+        { key: "fifo_pop", text: "  in_q[u] = false;" },
+        { key: "fifo_relax", text: "  for &(v, w) in &adj[u] {" },
+        { key: "fifo_relax", text: "      if d[u] + w < d[v] {" },
+        { key: "fifo_relax", text: "          d[v] = d[u] + w; parent[v] = Some(u);" },
+        { key: "fifo_relax", text: "          if !in_q[v] { q.push_back(v); in_q[v] = true; }" },
+        { key: "fifo_relax", text: "      }" },
+        { key: "fifo_relax", text: "  }" },
+        { key: "fifo_pop", text: "}" },
+        { key: "fifo_done", text: "// Algorithm completed" },
+        { key: "fifo_check", text: "// Check for negative cycles" },
+        { key: "fifo_check_edge", text: "for &(u, v, w) in &edges {" },
+        { key: "fifo_neg_cycle", text: "  if d[u] + w < d[v] { println!(\"negative cycle\"); }" },
+        { key: "fifo_check_edge", text: "}" },
+      ],
+    },
+    javascript: {
+      relaxation: [
+        { key: "init", text: "const d = Array(n).fill(Infinity); const parent = Array(n).fill(null);" },
+        { key: "init", text: "d[s] = 0;" },
+        { key: "relax_outer", text: "for (let i = 0; i < n - 1; i++) {" },
+        { key: "relax", text: "  for (const [u, v, w] of edges) {" },
+        { key: "relax", text: "      if (d[u] + w < d[v]) {" },
+        { key: "relax", text: "          d[v] = d[u] + w; parent[v] = u;" },
+        { key: "relax", text: "      }" },
+        { key: "relax", text: "  }" },
+        { key: "relax_outer", text: "}" },
+      ],
+      "bellman-ford": [
+        { key: "bf_init", text: "const d = Array(n).fill(Infinity); const parent = Array(n).fill(null);" },
+        { key: "bf_init", text: "d[s] = 0;" },
+        { key: "bf_outer", text: "for (let i = 0; i < n - 1; i++) {" },
+        { key: "bf_relax", text: "  for (const [u, v, w] of edges) {" },
+        { key: "bf_relax", text: "      if (d[u] + w < d[v]) {" },
+        { key: "bf_relax", text: "          d[v] = d[u] + w; parent[v] = u;" },
+        { key: "bf_relax", text: "      }" },
+        { key: "bf_relax", text: "  }" },
+        { key: "bf_outer", text: "}" },
+        { key: "bf_check", text: "for (const [u, v, w] of edges) {" },
+        { key: "bf_neg_cycle", text: "  if (d[u] + w < d[v]) console.log('negative cycle');" },
+        { key: "bf_check", text: "}" },
+      ],
+      "bellman-ford-fifo": [
+        { key: "fifo_init", text: "const d = Array(n).fill(Infinity); const parent = Array(n).fill(null);" },
+        { key: "fifo_init", text: "d[s] = 0;" },
+        { key: "fifo_init", text: "const q = [s]; const inQ = Array(n).fill(false); inQ[s] = true;" },
+        { key: "fifo_pop", text: "while (q.length > 0) {" },
+        { key: "fifo_pop", text: "  const u = q.shift(); inQ[u] = false;" },
+        { key: "fifo_relax", text: "  for (const [v, w] of adj[u]) {" },
+        { key: "fifo_relax", text: "      if (d[u] + w < d[v]) {" },
+        { key: "fifo_relax", text: "          d[v] = d[u] + w; parent[v] = u;" },
+        { key: "fifo_relax", text: "          if (!inQ[v]) { q.push(v); inQ[v] = true; }" },
+        { key: "fifo_relax", text: "      }" },
+        { key: "fifo_relax", text: "  }" },
+        { key: "fifo_pop", text: "}" },
+        { key: "fifo_done", text: "// Algorithm completed" },
+        { key: "fifo_check", text: "// Check for negative cycles" },
+        { key: "fifo_check_edge", text: "for (const [u, v, w] of edges) {" },
+        { key: "fifo_neg_cycle", text: "  if (d[u] + w < d[v]) console.log('negative cycle');" },
+        { key: "fifo_check_edge", text: "}" },
+      ],
+    },
+    typescript: {
+      relaxation: [
+        { key: "init", text: "const d: number[] = Array(n).fill(Infinity); const parent: (number | null)[] = Array(n).fill(null);" },
+        { key: "init", text: "d[s] = 0;" },
+        { key: "relax_outer", text: "for (let i = 0; i < n - 1; i++) {" },
+        { key: "relax", text: "  for (const [u, v, w]: [number, number, number] of edges) {" },
+        { key: "relax", text: "      if (d[u] + w < d[v]) {" },
+        { key: "relax", text: "          d[v] = d[u] + w; parent[v] = u;" },
+        { key: "relax", text: "      }" },
+        { key: "relax", text: "  }" },
+        { key: "relax_outer", text: "}" },
+      ],
+      "bellman-ford": [
+        { key: "bf_init", text: "const d: number[] = Array(n).fill(Infinity); const parent: (number | null)[] = Array(n).fill(null);" },
+        { key: "bf_init", text: "d[s] = 0;" },
+        { key: "bf_outer", text: "for (let i = 0; i < n - 1; i++) {" },
+        { key: "bf_relax", text: "  for (const [u, v, w]: [number, number, number] of edges) {" },
+        { key: "bf_relax", text: "      if (d[u] + w < d[v]) {" },
+        { key: "bf_relax", text: "          d[v] = d[u] + w; parent[v] = u;" },
+        { key: "bf_relax", text: "      }" },
+        { key: "bf_relax", text: "  }" },
+        { key: "bf_outer", text: "}" },
+        { key: "bf_check", text: "for (const [u, v, w]: [number, number, number] of edges) {" },
+        { key: "bf_neg_cycle", text: "  if (d[u] + w < d[v]) console.log('negative cycle');" },
+        { key: "bf_check", text: "}" },
+      ],
+      "bellman-ford-fifo": [
+        { key: "fifo_init", text: "const d: number[] = Array(n).fill(Infinity); const parent: (number | null)[] = Array(n).fill(null);" },
+        { key: "fifo_init", text: "d[s] = 0;" },
+        { key: "fifo_init", text: "const q: number[] = [s]; const inQ: boolean[] = Array(n).fill(false); inQ[s] = true;" },
+        { key: "fifo_pop", text: "while (q.length > 0) {" },
+        { key: "fifo_pop", text: "  const u = q.shift()!; inQ[u] = false;" },
+        { key: "fifo_relax", text: "  for (const [v, w]: [number, number] of adj[u]) {" },
+        { key: "fifo_relax", text: "      if (d[u] + w < d[v]) {" },
+        { key: "fifo_relax", text: "          d[v] = d[u] + w; parent[v] = u;" },
+        { key: "fifo_relax", text: "          if (!inQ[v]) { q.push(v); inQ[v] = true; }" },
+        { key: "fifo_relax", text: "      }" },
+        { key: "fifo_relax", text: "  }" },
+        { key: "fifo_pop", text: "}" },
+        { key: "fifo_done", text: "// Algorithm completed" },
+        { key: "fifo_check", text: "// Check for negative cycles" },
+        { key: "fifo_check_edge", text: "for (const [u, v, w]: [number, number, number] of edges) {" },
+        { key: "fifo_neg_cycle", text: "  if (d[u] + w < d[v]) console.log('negative cycle');" },
+        { key: "fifo_check_edge", text: "}" },
+      ],
+    },
+    go: {
+      relaxation: [
+        { key: "init", text: "d := make([]float64, n); parent := make([]int, n)" },
+        { key: "init", text: "for i := range d { d[i] = math.Inf(1); parent[i] = -1 }" },
+        { key: "init", text: "d[s] = 0" },
+        { key: "relax_outer", text: "for i := 0; i < n-1; i++ {" },
+        { key: "relax", text: "  for _, e := range edges {" },
+        { key: "relax", text: "      u, v, w := e.u, e.v, e.w" },
+        { key: "relax", text: "      if d[u] + w < d[v] {" },
+        { key: "relax", text: "          d[v] = d[u] + w; parent[v] = u" },
+        { key: "relax", text: "      }" },
+        { key: "relax", text: "  }" },
+        { key: "relax_outer", text: "}" },
+      ],
+      "bellman-ford": [
+        { key: "bf_init", text: "d := make([]float64, n); parent := make([]int, n)" },
+        { key: "bf_init", text: "for i := range d { d[i] = math.Inf(1); parent[i] = -1 }" },
+        { key: "bf_init", text: "d[s] = 0" },
+        { key: "bf_outer", text: "for i := 0; i < n-1; i++ {" },
+        { key: "bf_relax", text: "  for _, e := range edges {" },
+        { key: "bf_relax", text: "      u, v, w := e.u, e.v, e.w" },
+        { key: "bf_relax", text: "      if d[u] + w < d[v] {" },
+        { key: "bf_relax", text: "          d[v] = d[u] + w; parent[v] = u" },
+        { key: "bf_relax", text: "      }" },
+        { key: "bf_relax", text: "  }" },
+        { key: "bf_outer", text: "}" },
+        { key: "bf_check", text: "for _, e := range edges {" },
+        { key: "bf_neg_cycle", text: "  if d[e.u] + e.w < d[e.v] { fmt.Println(\"negative cycle\") }" },
+        { key: "bf_check", text: "}" },
+      ],
+      "bellman-ford-fifo": [
+        { key: "fifo_init", text: "d := make([]float64, n); parent := make([]int, n); inQ := make([]bool, n)" },
+        { key: "fifo_init", text: "for i := range d { d[i] = math.Inf(1); parent[i] = -1 }" },
+        { key: "fifo_init", text: "d[s] = 0; q := []int{s}; inQ[s] = true" },
+        { key: "fifo_pop", text: "for len(q) > 0 {" },
+        { key: "fifo_pop", text: "  u := q[0]; q = q[1:]; inQ[u] = false" },
+        { key: "fifo_relax", text: "  for _, e := range adj[u] {" },
+        { key: "fifo_relax", text: "      v, w := e.v, e.w" },
+        { key: "fifo_relax", text: "      if d[u] + w < d[v] {" },
+        { key: "fifo_relax", text: "          d[v] = d[u] + w; parent[v] = u" },
+        { key: "fifo_relax", text: "          if !inQ[v] { q = append(q, v); inQ[v] = true }" },
+        { key: "fifo_relax", text: "      }" },
+        { key: "fifo_relax", text: "  }" },
+        { key: "fifo_pop", text: "}" },
+        { key: "fifo_done", text: "// Algorithm completed" },
+        { key: "fifo_check", text: "// Check for negative cycles" },
+        { key: "fifo_check_edge", text: "for _, e := range edges {" },
+        { key: "fifo_neg_cycle", text: "  if d[e.u] + e.w < d[e.v] { fmt.Println(\"negative cycle\") }" },
+        { key: "fifo_check_edge", text: "}" },
+      ],
+    },
+    kotlin: {
+      relaxation: [
+        { key: "init", text: "val d = DoubleArray(n) { Double.POSITIVE_INFINITY }" },
+        { key: "init", text: "val parent = IntArray(n) { -1 }" },
+        { key: "init", text: "d[s] = 0.0" },
+        { key: "relax_outer", text: "repeat(n - 1) {" },
+        { key: "relax", text: "  edges.forEach { (u, v, w) ->" },
+        { key: "relax", text: "      if (d[u] + w < d[v]) {" },
+        { key: "relax", text: "          d[v] = d[u] + w; parent[v] = u" },
+        { key: "relax", text: "      }" },
+        { key: "relax", text: "  }" },
+        { key: "relax_outer", text: "}" },
+      ],
+      "bellman-ford": [
+        { key: "bf_init", text: "val d = DoubleArray(n) { Double.POSITIVE_INFINITY }" },
+        { key: "bf_init", text: "val parent = IntArray(n) { -1 }" },
+        { key: "bf_init", text: "d[s] = 0.0" },
+        { key: "bf_outer", text: "repeat(n - 1) {" },
+        { key: "bf_relax", text: "  edges.forEach { (u, v, w) ->" },
+        { key: "bf_relax", text: "      if (d[u] + w < d[v]) {" },
+        { key: "bf_relax", text: "          d[v] = d[u] + w; parent[v] = u" },
+        { key: "bf_relax", text: "      }" },
+        { key: "bf_relax", text: "  }" },
+        { key: "bf_outer", text: "}" },
+        { key: "bf_check", text: "edges.forEach { (u, v, w) ->" },
+        { key: "bf_neg_cycle", text: "  if (d[u] + w < d[v]) println(\"negative cycle\")" },
+        { key: "bf_check", text: "}" },
+      ],
+      "bellman-ford-fifo": [
+        { key: "fifo_init", text: "val d = DoubleArray(n) { Double.POSITIVE_INFINITY }" },
+        { key: "fifo_init", text: "val parent = IntArray(n) { -1 }" },
+        { key: "fifo_init", text: "d[s] = 0.0" },
+        { key: "fifo_init", text: "val q = ArrayDeque<Int>(); val inQ = BooleanArray(n)" },
+        { key: "fifo_init", text: "q.add(s); inQ[s] = true" },
+        { key: "fifo_pop", text: "while (q.isNotEmpty()) {" },
+        { key: "fifo_pop", text: "  val u = q.removeFirst(); inQ[u] = false" },
+        { key: "fifo_relax", text: "  adj[u].forEach { (v, w) ->" },
+        { key: "fifo_relax", text: "      if (d[u] + w < d[v]) {" },
+        { key: "fifo_relax", text: "          d[v] = d[u] + w; parent[v] = u" },
+        { key: "fifo_relax", text: "          if (!inQ[v]) { q.add(v); inQ[v] = true }" },
+        { key: "fifo_relax", text: "      }" },
+        { key: "fifo_relax", text: "  }" },
+        { key: "fifo_pop", text: "}" },
+      ],
+    },
+    swift: {
+      relaxation: [
+        { key: "init", text: "var d = Array(repeating: Double.infinity, count: n)" },
+        { key: "init", text: "var parent = Array(repeating: -1, count: n)" },
+        { key: "init", text: "d[s] = 0" },
+        { key: "relax_outer", text: "for _ in 0..<n - 1 {" },
+        { key: "relax", text: "  for (u, v, w) in edges {" },
+        { key: "relax", text: "      if d[u] + w < d[v] {" },
+        { key: "relax", text: "          d[v] = d[u] + w; parent[v] = u" },
+        { key: "relax", text: "      }" },
+        { key: "relax", text: "  }" },
+        { key: "relax_outer", text: "}" },
+      ],
+      "bellman-ford": [
+        { key: "bf_init", text: "var d = Array(repeating: Double.infinity, count: n)" },
+        { key: "bf_init", text: "var parent = Array(repeating: -1, count: n)" },
+        { key: "bf_init", text: "d[s] = 0" },
+        { key: "bf_outer", text: "for _ in 0..<n - 1 {" },
+        { key: "bf_relax", text: "  for (u, v, w) in edges {" },
+        { key: "bf_relax", text: "      if d[u] + w < d[v] {" },
+        { key: "bf_relax", text: "          d[v] = d[u] + w; parent[v] = u" },
+        { key: "bf_relax", text: "      }" },
+        { key: "bf_relax", text: "  }" },
+        { key: "bf_outer", text: "}" },
+        { key: "bf_check", text: "for (u, v, w) in edges {" },
+        { key: "bf_neg_cycle", text: "  if d[u] + w < d[v] { print(\"negative cycle\") }" },
+        { key: "bf_check", text: "}" },
+      ],
+      "bellman-ford-fifo": [
+        { key: "fifo_init", text: "var d = Array(repeating: Double.infinity, count: n)" },
+        { key: "fifo_init", text: "var parent = Array(repeating: -1, count: n)" },
+        { key: "fifo_init", text: "d[s] = 0" },
+        { key: "fifo_init", text: "var q = [s]; var inQ = Array(repeating: false, count: n); inQ[s] = true" },
+        { key: "fifo_pop", text: "while !q.isEmpty {" },
+        { key: "fifo_pop", text: "  let u = q.removeFirst(); inQ[u] = false" },
+        { key: "fifo_relax", text: "  for (v, w) in adj[u] {" },
+        { key: "fifo_relax", text: "      if d[u] + w < d[v] {" },
+        { key: "fifo_relax", text: "          d[v] = d[u] + w; parent[v] = u" },
+        { key: "fifo_relax", text: "          if !inQ[v] { q.append(v); inQ[v] = true }" },
+        { key: "fifo_relax", text: "      }" },
+        { key: "fifo_relax", text: "  }" },
+        { key: "fifo_pop", text: "}" },
+        { key: "fifo_done", text: "// Algorithm completed" },
+        { key: "fifo_check", text: "// Check for negative cycles" },
+        { key: "fifo_check_edge", text: "for (u, v, w) in edges {" },
+        { key: "fifo_neg_cycle", text: "  if d[u] + w < d[v] { print(\"negative cycle\") }" },
+        { key: "fifo_check_edge", text: "}" },
+      ],
+    },
+    csharp: {
+      relaxation: [
+        { key: "init", text: "double[] d = new double[n]; int[] parent = new int[n];" },
+        { key: "init", text: "Array.Fill(d, double.PositiveInfinity); Array.Fill(parent, -1); d[s] = 0;" },
+        { key: "relax_outer", text: "for (int i = 0; i < n - 1; i++) {" },
+        { key: "relax", text: "  foreach (var (u, v, w) in edges) {" },
+        { key: "relax", text: "      if (d[u] + w < d[v]) {" },
+        { key: "relax", text: "          d[v] = d[u] + w; parent[v] = u;" },
+        { key: "relax", text: "      }" },
+        { key: "relax", text: "  }" },
+        { key: "relax_outer", text: "}" },
+      ],
+      "bellman-ford": [
+        { key: "bf_init", text: "double[] d = new double[n]; int[] parent = new int[n];" },
+        { key: "bf_init", text: "Array.Fill(d, double.PositiveInfinity); Array.Fill(parent, -1); d[s] = 0;" },
+        { key: "bf_outer", text: "for (int i = 0; i < n - 1; i++) {" },
+        { key: "bf_relax", text: "  foreach (var (u, v, w) in edges) {" },
+        { key: "bf_relax", text: "      if (d[u] + w < d[v]) {" },
+        { key: "bf_relax", text: "          d[v] = d[u] + w; parent[v] = u;" },
+        { key: "bf_relax", text: "      }" },
+        { key: "bf_relax", text: "  }" },
+        { key: "bf_outer", text: "}" },
+        { key: "bf_check", text: "foreach (var (u, v, w) in edges) {" },
+        { key: "bf_neg_cycle", text: "  if (d[u] + w < d[v]) Console.WriteLine(\"negative cycle\");" },
+        { key: "bf_check", text: "}" },
+      ],
+      "bellman-ford-fifo": [
+        { key: "fifo_init", text: "double[] d = new double[n]; int[] parent = new int[n]; bool[] inQ = new bool[n];" },
+        { key: "fifo_init", text: "Array.Fill(d, double.PositiveInfinity); Array.Fill(parent, -1); d[s] = 0;" },
+        { key: "fifo_init", text: "var q = new Queue<int>(); q.Enqueue(s); inQ[s] = true;" },
+        { key: "fifo_pop", text: "while (q.Count > 0) {" },
+        { key: "fifo_pop", text: "  int u = q.Dequeue(); inQ[u] = false;" },
+        { key: "fifo_relax", text: "  foreach (var (v, w) in adj[u]) {" },
+        { key: "fifo_relax", text: "      if (d[u] + w < d[v]) {" },
+        { key: "fifo_relax", text: "          d[v] = d[u] + w; parent[v] = u;" },
+        { key: "fifo_relax", text: "          if (!inQ[v]) { q.Enqueue(v); inQ[v] = true; }" },
+        { key: "fifo_relax", text: "      }" },
+        { key: "fifo_relax", text: "  }" },
+        { key: "fifo_pop", text: "}" },
+        { key: "fifo_done", text: "// Algorithm completed" },
+        { key: "fifo_check", text: "// Check for negative cycles" },
+        { key: "fifo_check_edge", text: "foreach (var (u, v, w) in edges) {" },
+        { key: "fifo_neg_cycle", text: "  if (d[u] + w < d[v]) Console.WriteLine(\"negative cycle\");" },
+        { key: "fifo_check_edge", text: "}" },
+      ],
+    },
+    ruby: {
+      relaxation: [
+        { key: "init", text: "d = Array.new(n, Float::INFINITY); parent = Array.new(n, nil)" },
+        { key: "init", text: "d[s] = 0" },
+        { key: "relax_outer", text: "(n - 1).times do" },
+        { key: "relax", text: "  edges.each do |u, v, w|" },
+        { key: "relax", text: "      if d[u] + w < d[v]" },
+        { key: "relax", text: "          d[v] = d[u] + w; parent[v] = u" },
+        { key: "relax", text: "      end" },
+        { key: "relax", text: "  end" },
+        { key: "relax_outer", text: "end" },
+      ],
+      "bellman-ford": [
+        { key: "bf_init", text: "d = Array.new(n, Float::INFINITY); parent = Array.new(n, nil)" },
+        { key: "bf_init", text: "d[s] = 0" },
+        { key: "bf_outer", text: "(n - 1).times do" },
+        { key: "bf_relax", text: "  edges.each do |u, v, w|" },
+        { key: "bf_relax", text: "      if d[u] + w < d[v]" },
+        { key: "bf_relax", text: "          d[v] = d[u] + w; parent[v] = u" },
+        { key: "bf_relax", text: "      end" },
+        { key: "bf_relax", text: "  end" },
+        { key: "bf_outer", text: "end" },
+        { key: "bf_check", text: "edges.each do |u, v, w|" },
+        { key: "bf_neg_cycle", text: "  puts 'negative cycle' if d[u] + w < d[v]" },
+        { key: "bf_check", text: "end" },
+      ],
+      "bellman-ford-fifo": [
+        { key: "fifo_init", text: "d = Array.new(n, Float::INFINITY); parent = Array.new(n, nil)" },
+        { key: "fifo_init", text: "d[s] = 0" },
+        { key: "fifo_init", text: "q = [s]; in_q = Array.new(n, false); in_q[s] = true" },
+        { key: "fifo_pop", text: "until q.empty?" },
+        { key: "fifo_pop", text: "  u = q.shift; in_q[u] = false" },
+        { key: "fifo_relax", text: "  adj[u].each do |v, w|" },
+        { key: "fifo_relax", text: "      if d[u] + w < d[v]" },
+        { key: "fifo_relax", text: "          d[v] = d[u] + w; parent[v] = u" },
+        { key: "fifo_relax", text: "          unless in_q[v]; q << v; in_q[v] = true end" },
+        { key: "fifo_relax", text: "      end" },
+        { key: "fifo_relax", text: "  end" },
+        { key: "fifo_pop", text: "end" },
+        { key: "fifo_done", text: "# Algorithm completed" },
+        { key: "fifo_check", text: "# Check for negative cycles" },
+        { key: "fifo_check_edge", text: "edges.each do |u, v, w|" },
+        { key: "fifo_neg_cycle", text: "  puts 'negative cycle' if d[u] + w < d[v]" },
+        { key: "fifo_check_edge", text: "end" },
+      ],
+    },
+    php: {
+      relaxation: [
+        { key: "init", text: "$d = array_fill(0, $n, INF); $parent = array_fill(0, $n, null);" },
+        { key: "init", text: "$d[$s] = 0;" },
+        { key: "relax_outer", text: "for ($i = 0; $i < $n - 1; $i++) {" },
+        { key: "relax", text: "  foreach ($edges as [$u, $v, $w]) {" },
+        { key: "relax", text: "      if ($d[$u] + $w < $d[$v]) {" },
+        { key: "relax", text: "          $d[$v] = $d[$u] + $w; $parent[$v] = $u;" },
+        { key: "relax", text: "      }" },
+        { key: "relax", text: "  }" },
+        { key: "relax_outer", text: "}" },
+      ],
+      "bellman-ford": [
+        { key: "bf_init", text: "$d = array_fill(0, $n, INF); $parent = array_fill(0, $n, null);" },
+        { key: "bf_init", text: "$d[$s] = 0;" },
+        { key: "bf_outer", text: "for ($i = 0; $i < $n - 1; $i++) {" },
+        { key: "bf_relax", text: "  foreach ($edges as [$u, $v, $w]) {" },
+        { key: "bf_relax", text: "      if ($d[$u] + $w < $d[$v]) {" },
+        { key: "bf_relax", text: "          $d[$v] = $d[$u] + $w; $parent[$v] = $u;" },
+        { key: "bf_relax", text: "      }" },
+        { key: "bf_relax", text: "  }" },
+        { key: "bf_outer", text: "}" },
+        { key: "bf_check", text: "foreach ($edges as [$u, $v, $w]) {" },
+        { key: "bf_neg_cycle", text: "  if ($d[$u] + $w < $d[$v]) echo 'negative cycle';" },
+        { key: "bf_check", text: "}" },
+      ],
+      "bellman-ford-fifo": [
+        { key: "fifo_init", text: "$d = array_fill(0, $n, INF); $parent = array_fill(0, $n, null);" },
+        { key: "fifo_init", text: "$d[$s] = 0;" },
+        { key: "fifo_init", text: "$q = [$s]; $inQ = array_fill(0, $n, false); $inQ[$s] = true;" },
+        { key: "fifo_pop", text: "while (!empty($q)) {" },
+        { key: "fifo_pop", text: "  $u = array_shift($q); $inQ[$u] = false;" },
+        { key: "fifo_relax", text: "  foreach ($adj[$u] as [$v, $w]) {" },
+        { key: "fifo_relax", text: "      if ($d[$u] + $w < $d[$v]) {" },
+        { key: "fifo_relax", text: "          $d[$v] = $d[$u] + $w; $parent[$v] = $u;" },
+        { key: "fifo_relax", text: "          if (!$inQ[$v]) { $q[] = $v; $inQ[$v] = true; }" },
+        { key: "fifo_relax", text: "      }" },
+        { key: "fifo_relax", text: "  }" },
+        { key: "fifo_pop", text: "}" },
+        { key: "fifo_done", text: "// Algorithm completed" },
+        { key: "fifo_check", text: "// Check for negative cycles" },
+        { key: "fifo_check_edge", text: "foreach ($edges as [$u, $v, $w]) {" },
+        { key: "fifo_neg_cycle", text: "  if ($d[$u] + $w < $d[$v]) echo 'negative cycle';" },
+        { key: "fifo_check_edge", text: "}" },
+      ],
+    },
+    scala: {
+      relaxation: [
+        { key: "init", text: "val d = Array.fill(n)(Double.PositiveInfinity); val parent = Array.fill(n)(-1)" },
+        { key: "init", text: "d(s) = 0" },
+        { key: "relax_outer", text: "for (_ <- 0 until n - 1) {" },
+        { key: "relax", text: "  edges.foreach { case (u, v, w) =>" },
+        { key: "relax", text: "      if (d(u) + w < d(v)) {" },
+        { key: "relax", text: "          d(v) = d(u) + w; parent(v) = u" },
+        { key: "relax", text: "      }" },
+        { key: "relax", text: "  }" },
+        { key: "relax_outer", text: "}" },
+      ],
+      "bellman-ford": [
+        { key: "bf_init", text: "val d = Array.fill(n)(Double.PositiveInfinity); val parent = Array.fill(n)(-1)" },
+        { key: "bf_init", text: "d(s) = 0" },
+        { key: "bf_outer", text: "for (_ <- 0 until n - 1) {" },
+        { key: "bf_relax", text: "  edges.foreach { case (u, v, w) =>" },
+        { key: "bf_relax", text: "      if (d(u) + w < d(v)) {" },
+        { key: "bf_relax", text: "          d(v) = d(u) + w; parent(v) = u" },
+        { key: "bf_relax", text: "      }" },
+        { key: "bf_relax", text: "  }" },
+        { key: "bf_outer", text: "}" },
+        { key: "bf_check", text: "edges.foreach { case (u, v, w) =>" },
+        { key: "bf_neg_cycle", text: "  if (d(u) + w < d(v)) println(\"negative cycle\")" },
+        { key: "bf_check", text: "}" },
+      ],
+      "bellman-ford-fifo": [
+        { key: "fifo_init", text: "val d = Array.fill(n)(Double.PositiveInfinity); val parent = Array.fill(n)(-1)" },
+        { key: "fifo_init", text: "d(s) = 0" },
+        { key: "fifo_init", text: "import scala.collection.mutable.Queue" },
+        { key: "fifo_init", text: "val q = Queue(s); val inQ = Array.fill(n)(false); inQ(s) = true" },
+        { key: "fifo_pop", text: "while (q.nonEmpty) {" },
+        { key: "fifo_pop", text: "  val u = q.dequeue(); inQ(u) = false" },
+        { key: "fifo_relax", text: "  adj(u).foreach { case (v, w) =>" },
+        { key: "fifo_relax", text: "      if (d(u) + w < d(v)) {" },
+        { key: "fifo_relax", text: "          d(v) = d(u) + w; parent(v) = u" },
+        { key: "fifo_relax", text: "          if (!inQ(v)) { q.enqueue(v); inQ(v) = true }" },
+        { key: "fifo_relax", text: "      }" },
+        { key: "fifo_relax", text: "  }" },
+        { key: "fifo_pop", text: "}" },
+        { key: "fifo_done", text: "// Algorithm completed" },
+        { key: "fifo_check", text: "// Check for negative cycles" },
+        { key: "fifo_check_edge", text: "edges.foreach { case (u, v, w) =>" },
+        { key: "fifo_neg_cycle", text: "  if (d(u) + w < d(v)) println(\"negative cycle\")" },
+        { key: "fifo_check_edge", text: "}" },
+      ],
+    },
+    haskell: {
+      relaxation: [
+        { key: "init", text: "d = replicate n (1/0) :: [Double]" },
+        { key: "init", text: "parent = replicate n Nothing :: [Maybe Int]" },
+        { key: "init", text: "d' = take s d ++ [0] ++ drop (s+1) d" },
+        { key: "relax_outer", text: "relaxAll edges dist par = foldl relax (dist, par) edges" },
+        { key: "relax", text: "relax (d, p) (u, v, w) | d!!u + w < d!!v = (update d v (d!!u + w), update p v (Just u))" },
+        { key: "relax", text: "                | otherwise = (d, p)" },
+      ],
+      "bellman-ford": [
+        { key: "bf_init", text: "d = replicate n (1/0) :: [Double]" },
+        { key: "bf_init", text: "parent = replicate n Nothing :: [Maybe Int]" },
+        { key: "bf_init", text: "d' = take s d ++ [0] ++ drop (s+1) d" },
+        { key: "bf_outer", text: "bf dist par = foldl (\\acc _ -> relaxAll edges acc) (dist, par) [1..n-1]" },
+        { key: "bf_relax", text: "relaxAll edges (d, p) = foldl relax (d, p) edges" },
+        { key: "bf_relax", text: "relax (d, p) (u, v, w) | d!!u + w < d!!v = (update d v (d!!u + w), update p v (Just u))" },
+        { key: "bf_relax", text: "                | otherwise = (d, p)" },
+        { key: "bf_check", text: "hasNegCycle edges d = any (\\(u, v, w) -> d!!u + w < d!!v) edges" },
+      ],
+      "bellman-ford-fifo": [
+        { key: "fifo_init", text: "d = replicate n (1/0) :: [Double]" },
+        { key: "fifo_init", text: "parent = replicate n Nothing :: [Maybe Int]" },
+        { key: "fifo_init", text: "d' = take s d ++ [0] ++ drop (s+1) d" },
+        { key: "fifo_init", text: "q = [s]; inQ = replicate n False" },
+        { key: "fifo_pop", text: "bfFIFO q inQ d p | null q = (d, p)" },
+        { key: "fifo_pop", text: "              | otherwise = let (u:qs) = q in process u qs" },
+        { key: "fifo_relax", text: "process u qs = foldl relaxEdge (qs, d, p) (adj u)" },
+      ],
+    },
+    ocaml: {
+      relaxation: [
+        { key: "init", text: "let d = Array.make n infinity in" },
+        { key: "init", text: "let parent = Array.make n None in" },
+        { key: "init", text: "d.(s) <- 0.0;" },
+        { key: "relax_outer", text: "for _ = 0 to n - 2 do" },
+        { key: "relax", text: "  List.iter (fun (u, v, w) ->" },
+        { key: "relax", text: "      if d.(u) +. w < d.(v) then (" },
+        { key: "relax", text: "          d.(v) <- d.(u) +. w; parent.(v) <- Some u" },
+        { key: "relax", text: "      )" },
+        { key: "relax", text: "  ) edges" },
+        { key: "relax_outer", text: "done" },
+      ],
+      "bellman-ford": [
+        { key: "bf_init", text: "let d = Array.make n infinity in" },
+        { key: "bf_init", text: "let parent = Array.make n None in" },
+        { key: "bf_init", text: "d.(s) <- 0.0;" },
+        { key: "bf_outer", text: "for _ = 0 to n - 2 do" },
+        { key: "bf_relax", text: "  List.iter (fun (u, v, w) ->" },
+        { key: "bf_relax", text: "      if d.(u) +. w < d.(v) then (" },
+        { key: "bf_relax", text: "          d.(v) <- d.(u) +. w; parent.(v) <- Some u" },
+        { key: "bf_relax", text: "      )" },
+        { key: "bf_relax", text: "  ) edges" },
+        { key: "bf_outer", text: "done" },
+        { key: "bf_check", text: "List.iter (fun (u, v, w) ->" },
+        { key: "bf_neg_cycle", text: "  if d.(u) +. w < d.(v) then print_string \"negative cycle\"" },
+        { key: "bf_check", text: ") edges" },
+      ],
+      "bellman-ford-fifo": [
+        { key: "fifo_init", text: "let d = Array.make n infinity in" },
+        { key: "fifo_init", text: "let parent = Array.make n None in" },
+        { key: "fifo_init", text: "d.(s) <- 0.0;" },
+        { key: "fifo_init", text: "let q = Queue.create () in" },
+        { key: "fifo_init", text: "let in_q = Array.make n false in" },
+        { key: "fifo_init", text: "Queue.push s q; in_q.(s) <- true;" },
+        { key: "fifo_pop", text: "while not (Queue.is_empty q) do" },
+        { key: "fifo_pop", text: "  let u = Queue.pop q in in_q.(u) <- false;" },
+        { key: "fifo_relax", text: "  List.iter (fun (v, w) ->" },
+        { key: "fifo_relax", text: "      if d.(u) +. w < d.(v) then (" },
+        { key: "fifo_relax", text: "          d.(v) <- d.(u) +. w; parent.(v) <- Some u;" },
+        { key: "fifo_relax", text: "          if not in_q.(v) then (Queue.push v q; in_q.(v) <- true)" },
+        { key: "fifo_relax", text: "      )" },
+        { key: "fifo_relax", text: "  ) adj.(u)" },
+        { key: "fifo_pop", text: "done" },
+      ],
+    },
+    fsharp: {
+      relaxation: [
+        { key: "init", text: "let d = Array.create n System.Double.PositiveInfinity" },
+        { key: "init", text: "let parent = Array.create n None" },
+        { key: "init", text: "d.[s] <- 0.0" },
+        { key: "relax_outer", text: "for _ in 0 .. n - 2 do" },
+        { key: "relax", text: "  edges |> List.iter (fun (u, v, w) ->" },
+        { key: "relax", text: "      if d.[u] + w < d.[v] then (" },
+        { key: "relax", text: "          d.[v] <- d.[u] + w; parent.[v] <- Some u" },
+        { key: "relax", text: "      )" },
+        { key: "relax", text: "  )" },
+        { key: "relax_outer", text: "done" },
+      ],
+      "bellman-ford": [
+        { key: "bf_init", text: "let d = Array.create n System.Double.PositiveInfinity" },
+        { key: "bf_init", text: "let parent = Array.create n None" },
+        { key: "bf_init", text: "d.[s] <- 0.0" },
+        { key: "bf_outer", text: "for _ in 0 .. n - 2 do" },
+        { key: "bf_relax", text: "  edges |> List.iter (fun (u, v, w) ->" },
+        { key: "bf_relax", text: "      if d.[u] + w < d.[v] then (" },
+        { key: "bf_relax", text: "          d.[v] <- d.[u] + w; parent.[v] <- Some u" },
+        { key: "bf_relax", text: "      )" },
+        { key: "bf_relax", text: "  )" },
+        { key: "bf_outer", text: "done" },
+        { key: "bf_check", text: "edges |> List.iter (fun (u, v, w) ->" },
+        { key: "bf_neg_cycle", text: "  if d.[u] + w < d.[v] then printfn \"negative cycle\"" },
+        { key: "bf_check", text: ")" },
+      ],
+      "bellman-ford-fifo": [
+        { key: "fifo_init", text: "let d = Array.create n System.Double.PositiveInfinity" },
+        { key: "fifo_init", text: "let parent = Array.create n None" },
+        { key: "fifo_init", text: "d.[s] <- 0.0" },
+        { key: "fifo_init", text: "let q = System.Collections.Generic.Queue<int>()" },
+        { key: "fifo_init", text: "let inQ = Array.create n false" },
+        { key: "fifo_init", text: "q.Enqueue(s); inQ.[s] <- true" },
+        { key: "fifo_pop", text: "while q.Count > 0 do" },
+        { key: "fifo_pop", text: "  let u = q.Dequeue() in inQ.[u] <- false" },
+        { key: "fifo_relax", text: "  adj.[u] |> List.iter (fun (v, w) ->" },
+        { key: "fifo_relax", text: "      if d.[u] + w < d.[v] then (" },
+        { key: "fifo_relax", text: "          d.[v] <- d.[u] + w; parent.[v] <- Some u;" },
+        { key: "fifo_relax", text: "          if not inQ.[v] then (q.Enqueue(v); inQ.[v] <- true)" },
+        { key: "fifo_relax", text: "      )" },
+        { key: "fifo_relax", text: "  )" },
+        { key: "fifo_pop", text: "done" },
+      ],
+    },
+    dart: {
+      relaxation: [
+        { key: "init", text: "List<double> d = List.filled(n, double.infinity);" },
+        { key: "init", text: "List<int?> parent = List.filled(n, null);" },
+        { key: "init", text: "d[s] = 0;" },
+        { key: "relax_outer", text: "for (int i = 0; i < n - 1; i++) {" },
+        { key: "relax", text: "  for (var (u, v, w) in edges) {" },
+        { key: "relax", text: "      if (d[u] + w < d[v]) {" },
+        { key: "relax", text: "          d[v] = d[u] + w; parent[v] = u;" },
+        { key: "relax", text: "      }" },
+        { key: "relax", text: "  }" },
+        { key: "relax_outer", text: "}" },
+      ],
+      "bellman-ford": [
+        { key: "bf_init", text: "List<double> d = List.filled(n, double.infinity);" },
+        { key: "bf_init", text: "List<int?> parent = List.filled(n, null);" },
+        { key: "bf_init", text: "d[s] = 0;" },
+        { key: "bf_outer", text: "for (int i = 0; i < n - 1; i++) {" },
+        { key: "bf_relax", text: "  for (var (u, v, w) in edges) {" },
+        { key: "bf_relax", text: "      if (d[u] + w < d[v]) {" },
+        { key: "bf_relax", text: "          d[v] = d[u] + w; parent[v] = u;" },
+        { key: "bf_relax", text: "      }" },
+        { key: "bf_relax", text: "  }" },
+        { key: "bf_outer", text: "}" },
+        { key: "bf_check", text: "for (var (u, v, w) in edges) {" },
+        { key: "bf_neg_cycle", text: "  if (d[u] + w < d[v]) print('negative cycle');" },
+        { key: "bf_check", text: "}" },
+      ],
+      "bellman-ford-fifo": [
+        { key: "fifo_init", text: "List<double> d = List.filled(n, double.infinity);" },
+        { key: "fifo_init", text: "List<int?> parent = List.filled(n, null);" },
+        { key: "fifo_init", text: "d[s] = 0;" },
+        { key: "fifo_init", text: "var q = <int>[s]; var inQ = List.filled(n, false); inQ[s] = true;" },
+        { key: "fifo_pop", text: "while (q.isNotEmpty) {" },
+        { key: "fifo_pop", text: "  int u = q.removeAt(0); inQ[u] = false;" },
+        { key: "fifo_relax", text: "  for (var (v, w) in adj[u]) {" },
+        { key: "fifo_relax", text: "      if (d[u] + w < d[v]) {" },
+        { key: "fifo_relax", text: "          d[v] = d[u] + w; parent[v] = u;" },
+        { key: "fifo_relax", text: "          if (!inQ[v]) { q.add(v); inQ[v] = true; }" },
+        { key: "fifo_relax", text: "      }" },
+        { key: "fifo_relax", text: "  }" },
+        { key: "fifo_pop", text: "}" },
+      ],
+    },
+    lua: {
+      relaxation: [
+        { key: "init", text: "local d = {}; local parent = {}" },
+        { key: "init", text: "for i = 1, n do d[i] = math.huge; parent[i] = nil end" },
+        { key: "init", text: "d[s] = 0" },
+        { key: "relax_outer", text: "for _ = 1, n - 1 do" },
+        { key: "relax", text: "  for _, edge in ipairs(edges) do" },
+        { key: "relax", text: "      local u, v, w = edge[1], edge[2], edge[3]" },
+        { key: "relax", text: "      if d[u] + w < d[v] then" },
+        { key: "relax", text: "          d[v] = d[u] + w; parent[v] = u" },
+        { key: "relax", text: "      end" },
+        { key: "relax", text: "  end" },
+        { key: "relax_outer", text: "end" },
+      ],
+      "bellman-ford": [
+        { key: "bf_init", text: "local d = {}; local parent = {}" },
+        { key: "bf_init", text: "for i = 1, n do d[i] = math.huge; parent[i] = nil end" },
+        { key: "bf_init", text: "d[s] = 0" },
+        { key: "bf_outer", text: "for _ = 1, n - 1 do" },
+        { key: "bf_relax", text: "  for _, edge in ipairs(edges) do" },
+        { key: "bf_relax", text: "      local u, v, w = edge[1], edge[2], edge[3]" },
+        { key: "bf_relax", text: "      if d[u] + w < d[v] then" },
+        { key: "bf_relax", text: "          d[v] = d[u] + w; parent[v] = u" },
+        { key: "bf_relax", text: "      end" },
+        { key: "bf_relax", text: "  end" },
+        { key: "bf_outer", text: "end" },
+        { key: "bf_check", text: "for _, edge in ipairs(edges) do" },
+        { key: "bf_neg_cycle", text: "  local u, v, w = edge[1], edge[2], edge[3]" },
+        { key: "bf_neg_cycle", text: "  if d[u] + w < d[v] then print('negative cycle') end" },
+        { key: "bf_check", text: "end" },
+      ],
+      "bellman-ford-fifo": [
+        { key: "fifo_init", text: "local d = {}; local parent = {}; local inQ = {}" },
+        { key: "fifo_init", text: "for i = 1, n do d[i] = math.huge; parent[i] = nil; inQ[i] = false end" },
+        { key: "fifo_init", text: "d[s] = 0; local q = {s}; inQ[s] = true" },
+        { key: "fifo_pop", text: "while #q > 0 do" },
+        { key: "fifo_pop", text: "  local u = table.remove(q, 1); inQ[u] = false" },
+        { key: "fifo_relax", text: "  for _, edge in ipairs(adj[u]) do" },
+        { key: "fifo_relax", text: "      local v, w = edge[1], edge[2]" },
+        { key: "fifo_relax", text: "      if d[u] + w < d[v] then" },
+        { key: "fifo_relax", text: "          d[v] = d[u] + w; parent[v] = u" },
+        { key: "fifo_relax", text: "          if not inQ[v] then table.insert(q, v); inQ[v] = true end" },
+        { key: "fifo_relax", text: "      end" },
+        { key: "fifo_relax", text: "  end" },
+        { key: "fifo_pop", text: "end" },
+      ],
+    },
+    perl: {
+      relaxation: [
+        { key: "init", text: "my @d = (inf) x $n; my @parent = (undef) x $n;" },
+        { key: "init", text: "$d[$s] = 0;" },
+        { key: "relax_outer", text: "for my $i (0 .. $n - 2) {" },
+        { key: "relax", text: "  for my $edge (@edges) {" },
+        { key: "relax", text: "      my ($u, $v, $w) = @$edge;" },
+        { key: "relax", text: "      if ($d[$u] + $w < $d[$v]) {" },
+        { key: "relax", text: "          $d[$v] = $d[$u] + $w; $parent[$v] = $u;" },
+        { key: "relax", text: "      }" },
+        { key: "relax", text: "  }" },
+        { key: "relax_outer", text: "}" },
+      ],
+      "bellman-ford": [
+        { key: "bf_init", text: "my @d = (inf) x $n; my @parent = (undef) x $n;" },
+        { key: "bf_init", text: "$d[$s] = 0;" },
+        { key: "bf_outer", text: "for my $i (0 .. $n - 2) {" },
+        { key: "bf_relax", text: "  for my $edge (@edges) {" },
+        { key: "bf_relax", text: "      my ($u, $v, $w) = @$edge;" },
+        { key: "bf_relax", text: "      if ($d[$u] + $w < $d[$v]) {" },
+        { key: "bf_relax", text: "          $d[$v] = $d[$u] + $w; $parent[$v] = $u;" },
+        { key: "bf_relax", text: "      }" },
+        { key: "bf_relax", text: "  }" },
+        { key: "bf_outer", text: "}" },
+        { key: "bf_check", text: "for my $edge (@edges) {" },
+        { key: "bf_neg_cycle", text: "  my ($u, $v, $w) = @$edge;" },
+        { key: "bf_neg_cycle", text: "  if ($d[$u] + $w < $d[$v]) { print \"negative cycle\\n\" }" },
+        { key: "bf_check", text: "}" },
+      ],
+      "bellman-ford-fifo": [
+        { key: "fifo_init", text: "my @d = (inf) x $n; my @parent = (undef) x $n; my @inQ = (0) x $n;" },
+        { key: "fifo_init", text: "$d[$s] = 0; my @q = ($s); $inQ[$s] = 1;" },
+        { key: "fifo_pop", text: "while (@q) {" },
+        { key: "fifo_pop", text: "  my $u = shift @q; $inQ[$u] = 0;" },
+        { key: "fifo_relax", text: "  for my $edge (@{$adj[$u]}) {" },
+        { key: "fifo_relax", text: "      my ($v, $w) = @$edge;" },
+        { key: "fifo_relax", text: "      if ($d[$u] + $w < $d[$v]) {" },
+        { key: "fifo_relax", text: "          $d[$v] = $d[$u] + $w; $parent[$v] = $u;" },
+        { key: "fifo_relax", text: "          if (!$inQ[$v]) { push @q, $v; $inQ[$v] = 1 }" },
+        { key: "fifo_relax", text: "      }" },
+        { key: "fifo_relax", text: "  }" },
+        { key: "fifo_pop", text: "}" },
+      ],
+    },
+    r: {
+      relaxation: [
+        { key: "init", text: "d <- rep(Inf, n); parent <- rep(NA, n)" },
+        { key: "init", text: "d[s] <- 0" },
+        { key: "relax_outer", text: "for (i in 1:(n-1)) {" },
+        { key: "relax", text: "  for (edge in edges) {" },
+        { key: "relax", text: "      u <- edge[1]; v <- edge[2]; w <- edge[3]" },
+        { key: "relax", text: "      if (d[u] + w < d[v]) {" },
+        { key: "relax", text: "          d[v] <- d[u] + w; parent[v] <- u" },
+        { key: "relax", text: "      }" },
+        { key: "relax", text: "  }" },
+        { key: "relax_outer", text: "}" },
+      ],
+      "bellman-ford": [
+        { key: "bf_init", text: "d <- rep(Inf, n); parent <- rep(NA, n)" },
+        { key: "bf_init", text: "d[s] <- 0" },
+        { key: "bf_outer", text: "for (i in 1:(n-1)) {" },
+        { key: "bf_relax", text: "  for (edge in edges) {" },
+        { key: "bf_relax", text: "      u <- edge[1]; v <- edge[2]; w <- edge[3]" },
+        { key: "bf_relax", text: "      if (d[u] + w < d[v]) {" },
+        { key: "bf_relax", text: "          d[v] <- d[u] + w; parent[v] <- u" },
+        { key: "bf_relax", text: "      }" },
+        { key: "bf_relax", text: "  }" },
+        { key: "bf_outer", text: "}" },
+        { key: "bf_check", text: "for (edge in edges) {" },
+        { key: "bf_neg_cycle", text: "  u <- edge[1]; v <- edge[2]; w <- edge[3]" },
+        { key: "bf_neg_cycle", text: "  if (d[u] + w < d[v]) cat(\"negative cycle\\n\")" },
+        { key: "bf_check", text: "}" },
+      ],
+      "bellman-ford-fifo": [
+        { key: "fifo_init", text: "d <- rep(Inf, n); parent <- rep(NA, n); inQ <- rep(FALSE, n)" },
+        { key: "fifo_init", text: "d[s] <- 0; q <- c(s); inQ[s] <- TRUE" },
+        { key: "fifo_pop", text: "while (length(q) > 0) {" },
+        { key: "fifo_pop", text: "  u <- q[1]; q <- q[-1]; inQ[u] <- FALSE" },
+        { key: "fifo_relax", text: "  for (edge in adj[[u]]) {" },
+        { key: "fifo_relax", text: "      v <- edge[1]; w <- edge[2]" },
+        { key: "fifo_relax", text: "      if (d[u] + w < d[v]) {" },
+        { key: "fifo_relax", text: "          d[v] <- d[u] + w; parent[v] <- u" },
+        { key: "fifo_relax", text: "          if (!inQ[v]) { q <- c(q, v); inQ[v] <- TRUE }" },
+        { key: "fifo_relax", text: "      }" },
+        { key: "fifo_relax", text: "  }" },
+        { key: "fifo_pop", text: "}" },
+      ],
+    },
+    matlab: {
+      relaxation: [
+        { key: "init", text: "d = inf(1, n); parent = zeros(1, n);" },
+        { key: "init", text: "d(s) = 0;" },
+        { key: "relax_outer", text: "for i = 1:n-1" },
+        { key: "relax", text: "  for e = 1:size(edges, 1)" },
+        { key: "relax", text: "      u = edges(e, 1); v = edges(e, 2); w = edges(e, 3);" },
+        { key: "relax", text: "      if d(u) + w < d(v)" },
+        { key: "relax", text: "          d(v) = d(u) + w; parent(v) = u;" },
+        { key: "relax", text: "      end" },
+        { key: "relax", text: "  end" },
+        { key: "relax_outer", text: "end" },
+      ],
+      "bellman-ford": [
+        { key: "bf_init", text: "d = inf(1, n); parent = zeros(1, n);" },
+        { key: "bf_init", text: "d(s) = 0;" },
+        { key: "bf_outer", text: "for i = 1:n-1" },
+        { key: "bf_relax", text: "  for e = 1:size(edges, 1)" },
+        { key: "bf_relax", text: "      u = edges(e, 1); v = edges(e, 2); w = edges(e, 3);" },
+        { key: "bf_relax", text: "      if d(u) + w < d(v)" },
+        { key: "bf_relax", text: "          d(v) = d(u) + w; parent(v) = u;" },
+        { key: "bf_relax", text: "      end" },
+        { key: "bf_relax", text: "  end" },
+        { key: "bf_outer", text: "end" },
+        { key: "bf_check", text: "for e = 1:size(edges, 1)" },
+        { key: "bf_neg_cycle", text: "  u = edges(e, 1); v = edges(e, 2); w = edges(e, 3);" },
+        { key: "bf_neg_cycle", text: "  if d(u) + w < d(v), fprintf('negative cycle\\n'); end" },
+        { key: "bf_check", text: "end" },
+      ],
+      "bellman-ford-fifo": [
+        { key: "fifo_init", text: "d = inf(1, n); parent = zeros(1, n); inQ = false(1, n);" },
+        { key: "fifo_init", text: "d(s) = 0; q = [s]; inQ(s) = true;" },
+        { key: "fifo_pop", text: "while ~isempty(q)" },
+        { key: "fifo_pop", text: "  u = q(1); q = q(2:end); inQ(u) = false;" },
+        { key: "fifo_relax", text: "  for e = 1:size(adj{u}, 1)" },
+        { key: "fifo_relax", text: "      v = adj{u}(e, 1); w = adj{u}(e, 2);" },
+        { key: "fifo_relax", text: "      if d(u) + w < d(v)" },
+        { key: "fifo_relax", text: "          d(v) = d(u) + w; parent(v) = u;" },
+        { key: "fifo_relax", text: "          if ~inQ(v), q = [q, v]; inQ(v) = true; end" },
+        { key: "fifo_relax", text: "      end" },
+        { key: "fifo_relax", text: "  end" },
+        { key: "fifo_pop", text: "end" },
+      ],
+    },
+    julia: {
+      relaxation: [
+        { key: "init", text: "d = fill(Inf, n); parent = fill(nothing, n)" },
+        { key: "init", text: "d[s] = 0" },
+        { key: "relax_outer", text: "for _ in 1:n-1" },
+        { key: "relax", text: "  for (u, v, w) in edges" },
+        { key: "relax", text: "      if d[u] + w < d[v]" },
+        { key: "relax", text: "          d[v] = d[u] + w; parent[v] = u" },
+        { key: "relax", text: "      end" },
+        { key: "relax", text: "  end" },
+        { key: "relax_outer", text: "end" },
+      ],
+      "bellman-ford": [
+        { key: "bf_init", text: "d = fill(Inf, n); parent = fill(nothing, n)" },
+        { key: "bf_init", text: "d[s] = 0" },
+        { key: "bf_outer", text: "for _ in 1:n-1" },
+        { key: "bf_relax", text: "  for (u, v, w) in edges" },
+        { key: "bf_relax", text: "      if d[u] + w < d[v]" },
+        { key: "bf_relax", text: "          d[v] = d[u] + w; parent[v] = u" },
+        { key: "bf_relax", text: "      end" },
+        { key: "bf_relax", text: "  end" },
+        { key: "bf_outer", text: "end" },
+        { key: "bf_check", text: "for (u, v, w) in edges" },
+        { key: "bf_neg_cycle", text: "  if d[u] + w < d[v] println(\"negative cycle\") end" },
+        { key: "bf_check", text: "end" },
+      ],
+      "bellman-ford-fifo": [
+        { key: "fifo_init", text: "d = fill(Inf, n); parent = fill(nothing, n); inQ = fill(false, n)" },
+        { key: "fifo_init", text: "d[s] = 0; q = [s]; inQ[s] = true" },
+        { key: "fifo_pop", text: "while !isempty(q)" },
+        { key: "fifo_pop", text: "  u = popfirst!(q); inQ[u] = false" },
+        { key: "fifo_relax", text: "  for (v, w) in adj[u]" },
+        { key: "fifo_relax", text: "      if d[u] + w < d[v]" },
+        { key: "fifo_relax", text: "          d[v] = d[u] + w; parent[v] = u" },
+        { key: "fifo_relax", text: "          if !inQ[v] push!(q, v); inQ[v] = true end" },
+        { key: "fifo_relax", text: "      end" },
+        { key: "fifo_relax", text: "  end" },
+        { key: "fifo_pop", text: "end" },
+      ],
+    },
+  };
+
+  function escapeHtml(str) {
+    return str
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+  }
+
+  function highlightSyntax(text, lang) {
+    // Escape HTML first
+    let html = escapeHtml(text);
+    
+    // Use placeholders to protect already-highlighted content
+    const PLACEHOLDER_PREFIX = '\uE001';
+    const placeholders = [];
+    let placeholderIdx = 0;
+    
+    function createPlaceholder(content) {
+      const id = placeholderIdx++;
+      const placeholder = `${PLACEHOLDER_PREFIX}${id}${PLACEHOLDER_PREFIX}`;
+      placeholders.push({ placeholder, content });
+      return placeholder;
+    }
+    
+    // Process in reverse order of specificity to avoid conflicts
+    
+    // 1. Comments (match to end of line)
+    if (lang === "cpp" || lang === "c" || lang === "java" || lang === "javascript" || lang === "typescript" || lang === "rust" || lang === "go" || lang === "kotlin" || lang === "swift" || lang === "csharp" || lang === "dart") {
+      html = html.replace(/(\/\/.*$)/gm, (match) => {
+        const ph = createPlaceholder(`<span class="tok-comment">${match}</span>`);
+        return ph;
+      });
+    } else if (lang === "python" || lang === "ruby" || lang === "perl" || lang === "r" || lang === "julia" || lang === "lua" || lang === "haskell" || lang === "php") {
+      html = html.replace(/(#.*$)/gm, (match) => {
+        const ph = createPlaceholder(`<span class="tok-comment">${match}</span>`);
+        return ph;
+      });
+    } else if (lang === "ocaml" || lang === "fsharp") {
+      html = html.replace(/(\(\*[\s\S]*?\*\))/g, (match) => {
+        const ph = createPlaceholder(`<span class="tok-comment">${match}</span>`);
+        return ph;
+      });
+    } else if (lang === "scala") {
+      html = html.replace(/(\/\/.*$)/gm, (match) => {
+        const ph = createPlaceholder(`<span class="tok-comment">${match}</span>`);
+        return ph;
+      });
+      html = html.replace(/(\/\*[\s\S]*?\*\/)/g, (match) => {
+        const ph = createPlaceholder(`<span class="tok-comment">${match}</span>`);
+        return ph;
+      });
+    } else if (lang === "matlab") {
+      html = html.replace(/(%.*$)/gm, (match) => {
+        const ph = createPlaceholder(`<span class="tok-comment">${match}</span>`);
+        return ph;
+      });
+    }
+    
+    // 2. Strings (before other replacements)
+    html = html.replace(/(['"])(?:(?=(\\?))\2.)*?\1/g, (match) => {
+      const ph = createPlaceholder(`<span class="tok-string">${match}</span>`);
+      return ph;
+    });
+    
+    // 3. Numbers (word boundaries)
+    html = html.replace(/\b(\d+\.?\d*)\b/g, (match) => {
+      const ph = createPlaceholder(`<span class="tok-number">${match}</span>`);
+      return ph;
+    });
+    
+    // 4. Function calls (identifier followed by opening paren, but not if it's a keyword)
+    html = html.replace(/\b([A-Za-z_][A-Za-z0-9_]*)\s*(?=\()/g, (match, ident) => {
+      // Check if it's a keyword - if so, skip (will be handled by keyword matcher)
+      const pythonKeywords = ['for', 'if', 'elif', 'else', 'while', 'return', 'break', 'continue', 'def', 'class', 'import', 'from', 'as', 'in', 'not', 'and', 'or', 'None', 'True', 'False', 'float', 'range', 'len', 'print', 'collections', 'deque', 'append', 'popleft'];
+      const cppKeywords = ['for', 'if', 'else', 'while', 'return', 'break', 'continue', 'auto', 'const', 'static', 'void', 'int', 'double', 'float', 'bool', 'char', 'long', 'short', 'class', 'struct', 'public', 'private', 'final', 'vector', 'queue', 'true', 'false', 'INF', 'NIL'];
+      
+      const isKeyword = lang === "python" ? pythonKeywords.includes(ident) :
+                       (lang === "cpp" || lang === "c" || lang === "java") ? cppKeywords.includes(ident) : false;
+      
+      if (!isKeyword) {
+        const ph = createPlaceholder(`<span class="tok-function">${match}</span>`);
+        return ph;
+      }
+      return match;
+    });
+    
+    // 5. Keywords (language-specific)
+    const commonKeywords = ['for', 'if', 'else', 'while', 'return', 'break', 'continue', 'true', 'false', 'null', 'nil', 'None'];
+    if (lang === "cpp" || lang === "c" || lang === "java" || lang === "csharp" || lang === "dart") {
+      html = html.replace(/\b(for|if|else|while|return|break|continue|auto|const|static|void|int|double|float|bool|char|long|short|class|struct|public|private|final|vector|queue|true|false|INF|NIL|null)\b/g, (match) => {
+        const ph = createPlaceholder(`<span class="tok-keyword">${match}</span>`);
+        return ph;
+      });
+    } else if (lang === "python" || lang === "ruby" || lang === "julia") {
+      html = html.replace(/\b(for|if|elif|else|while|return|break|continue|def|class|import|from|as|in|not|and|or|None|True|False|float|range|len|print|collections|deque|append|popleft|end|nil)\b/g, (match) => {
+        const ph = createPlaceholder(`<span class="tok-keyword">${match}</span>`);
+        return ph;
+      });
+    } else if (lang === "javascript" || lang === "typescript") {
+      html = html.replace(/\b(for|if|else|while|return|break|continue|const|let|var|function|class|true|false|null|undefined|Infinity|console|log)\b/g, (match) => {
+        const ph = createPlaceholder(`<span class="tok-keyword">${match}</span>`);
+        return ph;
+      });
+    } else if (lang === "rust") {
+      html = html.replace(/\b(for|if|else|while|return|break|continue|let|mut|fn|struct|enum|impl|pub|use|match|Some|None|true|false|println|f64|INFINITY)\b/g, (match) => {
+        const ph = createPlaceholder(`<span class="tok-keyword">${match}</span>`);
+        return ph;
+      });
+    } else if (lang === "go") {
+      html = html.replace(/\b(for|if|else|range|return|break|continue|var|const|func|type|struct|package|import|fmt|Println|math|Inf)\b/g, (match) => {
+        const ph = createPlaceholder(`<span class="tok-keyword">${match}</span>`);
+        return ph;
+      });
+    } else if (lang === "kotlin" || lang === "swift") {
+      html = html.replace(/\b(for|if|else|while|return|break|continue|var|val|let|func|class|struct|true|false|nil|Double|POSITIVE_INFINITY|infinity|print|println)\b/g, (match) => {
+        const ph = createPlaceholder(`<span class="tok-keyword">${match}</span>`);
+        return ph;
+      });
+    } else if (lang === "scala") {
+      html = html.replace(/\b(for|if|else|while|return|break|continue|val|var|def|class|object|import|Array|fill|Double|PositiveInfinity|println|foreach|case)\b/g, (match) => {
+        const ph = createPlaceholder(`<span class="tok-keyword">${match}</span>`);
+        return ph;
+      });
+    } else if (lang === "pseudo") {
+      html = html.replace(/\b(for|if|while|repeat|each|from|to|with|initialize|report|NIL)\b/g, (match) => {
+        const ph = createPlaceholder(`<span class="tok-keyword">${match}</span>`);
+        return ph;
+      });
+    }
+    
+    // 6. Operators - process carefully to avoid matching inside placeholders
+    // Since HTML is escaped, we can safely match operators
+    // But we need to avoid matching operators that are inside our placeholder markers
+    const operatorPattern = /[+\-*/=<>!|]+/g;
+    const operatorReplacements = [];
+    let opMatch;
+    while ((opMatch = operatorPattern.exec(html)) !== null) {
+      const start = opMatch.index;
+      const end = start + opMatch[0].length;
+      const before = html.substring(Math.max(0, start - 30), start);
+      const after = html.substring(end, Math.min(html.length, end + 30));
+      
+      // Skip if inside a placeholder
+      if (before.includes(PLACEHOLDER_PREFIX) || after.includes(PLACEHOLDER_PREFIX)) {
+        continue;
+      }
+      
+      // Skip if part of HTML entity (though this shouldn't happen after escapeHtml)
+      if (before.endsWith('&') && after.startsWith(';')) {
+        continue;
+      }
+      
+      operatorReplacements.push({
+        start,
+        end,
+        text: opMatch[0],
+        placeholder: createPlaceholder(`<span class="tok-operator">${opMatch[0]}</span>`)
+      });
+    }
+    
+    // Replace operators in reverse order to maintain indices
+    for (let i = operatorReplacements.length - 1; i >= 0; i--) {
+      const { start, end, placeholder } = operatorReplacements[i];
+      html = html.substring(0, start) + placeholder + html.substring(end);
+    }
+    
+    // Replace all placeholders with their content
+    placeholders.forEach(({ placeholder, content }) => {
+      html = html.replace(placeholder, content);
+    });
+    
+    return html;
+  }
+
+  function renderPseudoAndCode() {
+    const algoKey = algorithmSelect.value;
+    const pseudoLines = PSEUDO_TEMPLATES[algoKey];
+    const lang = languageSelect.value;
+    const codeLines = CODE_TEMPLATES[lang][algoKey];
+
+    // Render pseudo-code with syntax highlighting
+    pseudoPanel.innerHTML = "";
+    for (let i = 0; i < pseudoLines.length; i++) {
+      const line = document.createElement("span");
+      line.innerHTML = highlightSyntax(pseudoLines[i].text, "pseudo");
+      line.dataset.key = pseudoLines[i].key;
+      line.className = "code-line";
+      pseudoPanel.appendChild(line);
+      if (i < pseudoLines.length - 1) {
+        pseudoPanel.appendChild(document.createTextNode("\n"));
+      }
+    }
+
+    // Render concrete code with syntax highlighting
+    codePanel.innerHTML = "";
+    for (let i = 0; i < codeLines.length; i++) {
+      const line = document.createElement("span");
+      line.innerHTML = highlightSyntax(codeLines[i].text, lang);
+      line.dataset.key = codeLines[i].key;
+      line.className = "code-line";
+      codePanel.appendChild(line);
+      if (i < codeLines.length - 1) {
+        codePanel.appendChild(document.createTextNode("\n"));
+      }
+    }
+  }
+
+  function highlightCurrentCode(step) {
+    const key = step?.codeKey;
+    for (const block of [pseudoPanel, codePanel]) {
+      const lines = block.querySelectorAll(".code-line");
+      lines.forEach((line) => {
+        const matches = key && line.dataset.key === key;
+        line.classList.toggle("highlight", matches);
+        line.classList.toggle("dimmed", !matches);
+      });
+    }
+  }
+
+  // Tabs for pseudo/code
+  document.querySelectorAll(".tab").forEach((tab) => {
+    tab.addEventListener("click", () => {
+      document.querySelectorAll(".tab").forEach((t) => t.classList.remove("active"));
+      tab.classList.add("active");
+      const panelType = tab.dataset.panel;
+      if (panelType === "pseudo") {
+        pseudoPanel.classList.remove("hidden");
+        codePanel.classList.add("hidden");
+      } else {
+        pseudoPanel.classList.add("hidden");
+        codePanel.classList.remove("hidden");
+      }
+    });
+  });
+
+  algorithmSelect.addEventListener("change", () => {
+    renderPseudoAndCode();
+    clearSteps();
+  });
+  languageSelect.addEventListener("change", () => {
+    renderPseudoAndCode();
+    // Changing language resets the entire visualization so the user starts fresh
+    resetGraph();
+  });
+  startNodeSelect.addEventListener("change", () => {
+    clearSteps();
+    updateStepControls();
+  });
+
+  // --- Distances & parent subgraph rendering -----------------------------
+  function updateDistancesDisplay(distMap, updatedNode = null, source = null) {
+    distanceList.innerHTML = "";
+    const nodes = nodeData.get().sort((a, b) => a.id - b.id);
+    for (const n of nodes) {
+      const pill = document.createElement("span");
+      pill.className = "distance-pill";
+      const d = distMap.get ? distMap.get(n.id) : undefined;
+      if (n.id === source) pill.classList.add("source");
+      if (n.id === updatedNode) pill.classList.add("updated");
+      if (d === undefined || d === Infinity) pill.classList.add("infinite");
+      pill.textContent = `${idToLabel(n.id)}: ${
+        d === undefined ? "∞" : d === Infinity ? "∞" : d.toFixed(1).replace(/\.0$/, "")
+      }`;
+      distanceList.appendChild(pill);
+    }
+  }
+
+  function renderParentSubgraph(parentMap, distMap, highlightNode) {
+    const pn = parentNetwork.body.data.nodes;
+    const pe = parentNetwork.body.data.edges;
+    pn.clear();
+    pe.clear();
+
+    // Get source node
+    const sourceNodeId = parseInt(startNodeSelect.value, 10);
+    if (Number.isNaN(sourceNodeId)) {
+      return; // No source selected
+    }
+
+    // Build set of reachable nodes (nodes with finite distance from source)
+    const reachableNodes = new Set();
+    reachableNodes.add(sourceNodeId);
+    
+    // Traverse parent map to find all reachable nodes
+    function addReachable(nodeId) {
+      for (const [v, p] of parentMap.entries()) {
+        if (p === nodeId && !reachableNodes.has(v)) {
+          const d = distMap.get(v);
+          if (d !== undefined && d !== Infinity) {
+            reachableNodes.add(v);
+            addReachable(v);
+          }
+        }
+      }
+    }
+    addReachable(sourceNodeId);
+
+    // Calculate levels for each node based on distance from source
+    const nodeLevels = new Map();
+    nodeLevels.set(sourceNodeId, 0);
+    
+    // BFS to assign levels based on parent relationships
+    const queue = [sourceNodeId];
+    while (queue.length > 0) {
+      const current = queue.shift();
+      const currentLevel = nodeLevels.get(current);
+      
+      for (const [v, p] of parentMap.entries()) {
+        if (p === current && !nodeLevels.has(v)) {
+          const d = distMap.get(v);
+          if (d !== undefined && d !== Infinity) {
+            nodeLevels.set(v, currentLevel + 1);
+            queue.push(v);
+          }
+        }
+      }
+    }
+
+    // Ensure all reachable nodes have levels assigned
+    // If a node is reachable but doesn't have a level, assign it based on distance
+    for (const nodeId of reachableNodes) {
+      if (!nodeLevels.has(nodeId)) {
+        const d = distMap.get(nodeId);
+        if (d !== undefined && d !== Infinity) {
+          // Use distance to estimate level (rough approximation)
+          nodeLevels.set(nodeId, Math.floor(d / 10) || 1);
+        } else {
+          nodeLevels.set(nodeId, 1);
+        }
+      }
+    }
+
+    // Only add reachable nodes to the network with their levels
+    const nodes = nodeData.get();
+    const nodesToAdd = [];
+    for (const n of nodes) {
+      if (!reachableNodes.has(n.id)) continue;
+      
+      const d = distMap.get(n.id);
+      const level = nodeLevels.get(n.id);
+      
+      // Ensure level is always defined
+      if (level === undefined) {
+        nodeLevels.set(n.id, 0);
+      }
+      
+      nodesToAdd.push({
+        id: n.id,
+        label: idToLabel(n.id),
+        title:
+          d === undefined || d === Infinity
+            ? `${idToLabel(n.id)}: distance = ∞`
+            : `${idToLabel(n.id)}: distance = ${d.toFixed(2)}`,
+        color:
+          n.id === highlightNode
+            ? {
+                background: "rgba(74,222,128,0.45)",
+                border: nodeBaseColor(n.id),
+              }
+            : n.id === sourceNodeId
+            ? {
+                background: "rgba(56,189,248,0.3)",
+                border: nodeBaseColor(n.id),
+              }
+            : {
+                background: "rgba(15,23,42,0.95)",
+                border: nodeBaseColor(n.id),
+              },
+        level: nodeLevels.get(n.id), // All nodes guaranteed to have a level
+      });
+    }
+    
+    // Add all nodes at once with levels
+    if (nodesToAdd.length > 0) {
+      pn.add(nodesToAdd);
+    }
+
+    // Only add edges that are part of the tree (parent relationships)
+    for (const [v, p] of parentMap.entries()) {
+      if (p !== null && p !== undefined && reachableNodes.has(v) && reachableNodes.has(p)) {
+        const dv = distMap.get(v);
+        const dp = distMap.get(p);
+        let wLabel = "";
+        if (dp !== undefined && dv !== undefined && dp !== Infinity && dv !== Infinity) {
+          const w = dv - dp;
+          wLabel = w.toFixed(2).replace(/\.00$/, "");
+        }
+        pe.add({
+          id: `${p}-${v}`,
+          from: p,
+          to: v,
+          arrows: "to",
+          label: wLabel,
+          font: {
+            size: 16,
+            color: "#ffffff",
+            strokeWidth: 0,
+            align: "horizontal",
+            vadjust: -10,
+          },
+        });
+      }
+    }
+    
+    // Levels are already calculated and set when adding nodes above
+    
+    // Auto-fit the network to show all nodes
+    setTimeout(() => {
+      parentNetwork.fit({
+        animation: {
+          duration: 300,
+          easingFunction: "easeInOutQuad",
+        },
+        padding: 50,
+      });
+    }, 100);
+  }
+
+  function applyStepVisual(step) {
+    if (!step) return;
+    stepIndexLabel.textContent = String(currentStepIndex + 1);
+    stepTotalLabel.textContent = String(steps.length);
+    stepDescription.textContent = step.description || step.label || "";
+
+    const baseNodes = nodeData.get().map((n) => ({
+      id: n.id,
+      label: idToLabel(n.id),
+      color: {
+        background: "rgba(15,23,42,0.9)",
+        border: nodeBaseColor(n.id),
+        highlight: {
+          background: nodeBaseColor(n.id),
+          border: nodeBaseColor(n.id),
+        },
+      },
+    }));
+    nodeData.update(baseNodes);
+
+    const baseEdges = edgeData.get().map((e) => ({
+      id: e.id,
+      color: { color: "rgba(148,163,184,0.7)" },
+      width: 1.5,
+    }));
+    edgeData.update(baseEdges);
+
+    if (step.highlightNode !== null && step.highlightNode !== undefined) {
+      nodeData.update({
+        id: step.highlightNode,
+        color: {
+          background: "rgba(74,222,128,0.5)",
+          border: "#4ade80",
+        },
+      });
+    }
+    if (step.highlightEdge) {
+      edgeData.update({
+        id: step.highlightEdge,
+        color: { color: "#4ade80" },
+        width: 3,
+      });
+    }
+
+    const source = parseInt(startNodeSelect.value, 10);
+    updateDistancesDisplay(step.dist, step.relaxedNode, source);
+    renderParentSubgraph(step.parent ?? new Map(), step.dist ?? new Map(), step.highlightNode);
+    updateComplexityPanel(step);
+    updateAlgorithmTable(step.parent ?? new Map(), step.dist ?? new Map());
+    updateVariablePanel(step);
+    updatePathReconstruction();
+    updateAlgorithmStatistics(step);
+    updatePerformanceMetrics(step);
+    updateGraphStatistics();
+    
+    // Also update when there are no nodes (step might be null)
+    const nodes = nodeData.get();
+    if (!nodes.length) {
+      updateAlgorithmStatistics(null);
+      updatePerformanceMetrics(null);
+    }
+    highlightCurrentCode(step);
+
+    if (step.negCycle) {
+      flashStatus("Negative cycle detected reachable from source.", true);
+    } else {
+      flashStatus(step.label || "Step updated.");
+    }
+  }
+
+  function updateAlgorithmTable(parentMap, distMap) {
+    const tableHeaderRow = $("table-header-row");
+    const tableNodesRow = $("table-nodes-row");
+    const tableParentsRow = $("table-parents-row");
+    const tableDistancesRow = $("table-distances-row");
+    
+    const nodes = nodeData.get().sort((a, b) => a.id - b.id);
+    
+    // Clear existing cells (except label cells)
+    tableHeaderRow.innerHTML = "";
+    tableNodesRow.innerHTML = '<td class="table-label">Node</td>';
+    tableParentsRow.innerHTML = '<td class="table-label">Parent</td>';
+    tableDistancesRow.innerHTML = '<td class="table-label">Distance</td>';
+    
+    // Add header row with node labels (using custom labels if present)
+    nodes.forEach((n) => {
+      const headerCell = document.createElement("th");
+      const displayLabel = n.label || idToLabel(n.id);
+      headerCell.textContent = displayLabel;
+      headerCell.className = "table-header-cell";
+      tableHeaderRow.appendChild(headerCell);
+    });
+    
+    // Add node row
+    nodes.forEach((n) => {
+      const nodeCell = document.createElement("td");
+      const displayLabel = n.label || idToLabel(n.id);
+      nodeCell.textContent = displayLabel;
+      nodeCell.className = "table-data-cell";
+      tableNodesRow.appendChild(nodeCell);
+    });
+    
+    // Add parent row
+    nodes.forEach((n) => {
+      const parentCell = document.createElement("td");
+      const parentId = parentMap.get(n.id);
+      if (parentId === null || parentId === undefined) {
+        parentCell.textContent = "—";
+      } else {
+        const parentNode = nodeData.get(parentId);
+        const parentLabel = parentNode?.label || idToLabel(parentId);
+        parentCell.textContent = parentLabel;
+      }
+      parentCell.className = "table-data-cell";
+      tableParentsRow.appendChild(parentCell);
+    });
+    
+    // Add distance row
+    nodes.forEach((n) => {
+      const distCell = document.createElement("td");
+      const d = distMap.get(n.id);
+      distCell.textContent = d === undefined || d === Infinity ? "∞" : d.toFixed(2).replace(/\.00$/, "");
+      distCell.className = "table-data-cell";
+      if (d === Infinity || d === undefined) {
+        distCell.classList.add("infinite");
+      }
+      tableDistancesRow.appendChild(distCell);
+    });
+  }
+
+  function flashStatus(text, isError = false) {
+    statusLabel.innerHTML = isError
+      ? `<strong style="color:var(--danger)">${text}</strong>`
+      : text;
+  }
+
+  function updateVariablePanel(step) {
+    if (!variableListEl) return;
+    variableListEl.innerHTML = "";
+
+    if (!step) {
+      return;
+    }
+
+    const algoKey = algorithmSelect.value;
+    const nodes = nodeData.get().sort((a, b) => a.id - b.id);
+
+    // Extract u, v, w from step (might be from/to/w or u/v/w)
+    const u = step.u !== undefined ? step.u : step.from;
+    const v = step.v !== undefined ? step.v : step.to;
+    const w = step.w !== undefined ? step.w : (step.w !== undefined ? step.w : null);
+
+    // Show iteration if available
+    if (typeof step.iteration === "number") {
+      const nameEl = document.createElement("div");
+      nameEl.className = "variable-name";
+      nameEl.textContent = "iteration";
+      const valueEl = document.createElement("div");
+      valueEl.className = "variable-value";
+      valueEl.textContent = String(step.iteration);
+      variableListEl.appendChild(nameEl);
+      variableListEl.appendChild(valueEl);
+    }
+
+    // Show u, v, w if available (current edge being processed)
+    if (u !== undefined && u !== null) {
+      const nameEl = document.createElement("div");
+      nameEl.className = "variable-name";
+      nameEl.textContent = "u";
+      const valueEl = document.createElement("div");
+      valueEl.className = "variable-value";
+      valueEl.textContent = idToLabel(u);
+      variableListEl.appendChild(nameEl);
+      variableListEl.appendChild(valueEl);
+    }
+
+    if (v !== undefined && v !== null) {
+      const nameEl = document.createElement("div");
+      nameEl.className = "variable-name";
+      nameEl.textContent = "v";
+      const valueEl = document.createElement("div");
+      valueEl.className = "variable-value";
+      valueEl.textContent = idToLabel(v);
+      variableListEl.appendChild(nameEl);
+      variableListEl.appendChild(valueEl);
+    }
+
+    if (w !== undefined && w !== null) {
+      const nameEl = document.createElement("div");
+      nameEl.className = "variable-name";
+      nameEl.textContent = "w";
+      const valueEl = document.createElement("div");
+      valueEl.className = "variable-value";
+      valueEl.textContent = String(w);
+      variableListEl.appendChild(nameEl);
+      variableListEl.appendChild(valueEl);
+    }
+
+    // Show d dictionary (all distances)
+    if (step.dist && nodes.length > 0) {
+      const nameEl = document.createElement("div");
+      nameEl.className = "variable-name";
+      nameEl.textContent = "d";
+      const valueEl = document.createElement("div");
+      valueEl.className = "variable-value";
+      const dEntries = [];
+      for (const n of nodes) {
+        const d = step.dist.get(n.id);
+        const label = n.label || idToLabel(n.id);
+        const val = d === undefined || d === Infinity ? "∞" : d.toFixed(2).replace(/\.00$/, "");
+        dEntries.push(`${label}: ${val}`);
+      }
+      valueEl.textContent = `{${dEntries.join(", ")}}`;
+      variableListEl.appendChild(nameEl);
+      variableListEl.appendChild(valueEl);
+    }
+
+    // Show parent dictionary (all parents)
+    if (step.parent && nodes.length > 0) {
+      const nameEl = document.createElement("div");
+      nameEl.className = "variable-name";
+      nameEl.textContent = "parent";
+      const valueEl = document.createElement("div");
+      valueEl.className = "variable-value";
+      const parentEntries = [];
+      for (const n of nodes) {
+        const p = step.parent.get(n.id);
+        const label = n.label || idToLabel(n.id);
+        const parentLabel = p === null || p === undefined ? "None" : (nodeData.get(p)?.label || idToLabel(p));
+        parentEntries.push(`${label}: ${parentLabel}`);
+      }
+      valueEl.textContent = `{${parentEntries.join(", ")}}`;
+      variableListEl.appendChild(nameEl);
+      variableListEl.appendChild(valueEl);
+    }
+
+    // Show queue for FIFO variant
+    if (algoKey === "bellman-ford-fifo" && step.queueSnapshot) {
+      const nameEl = document.createElement("div");
+      nameEl.className = "variable-name";
+      nameEl.textContent = "queue";
+      const valueEl = document.createElement("div");
+      valueEl.className = "variable-value";
+      const queueLabels = step.queueSnapshot.map((id) => {
+        const node = nodeData.get(id);
+        return node?.label || idToLabel(id);
+      });
+      valueEl.textContent = queueLabels.length > 0 ? `[${queueLabels.join(", ")}]` : "[]";
+      variableListEl.appendChild(nameEl);
+      variableListEl.appendChild(valueEl);
+    }
+  }
+
+  function updateComplexityPanel(step) {
+    if (!timeBigOEl || !spaceBigOEl || !timeProgressEl || !spaceProgressEl) return;
+
+    const algoKey = algorithmSelect.value;
+    const n = nodeData.get().length;
+    const m = edgeData.get().length;
+
+    let timeO = "";
+    let spaceO = "";
+    let timeActual = "";
+    let spaceActual = "";
+
+    if (algoKey === "relaxation") {
+      timeO = "O(V · E)";
+      spaceO = "O(V + E)";
+      if (n > 0 && m > 0) {
+        const timeVal = n * m;
+        const spaceVal = n + m;
+        timeActual = ` = O(${n} · ${m}) = ${timeVal}`;
+        spaceActual = ` = O(${n} + ${m}) = ${spaceVal}`;
+      }
+    } else if (algoKey === "bellman-ford") {
+      timeO = "O(V · E)";
+      spaceO = "O(V)";
+      if (n > 0 && m > 0) {
+        const timeVal = n * m;
+        timeActual = ` = O(${n} · ${m}) = ${timeVal}`;
+        spaceActual = ` = O(${n}) = ${n}`;
+      }
+    } else if (algoKey === "bellman-ford-fifo") {
+      timeO = "O(V · E) worst-case";
+      spaceO = "O(V + E)";
+      if (n > 0 && m > 0) {
+        const timeVal = n * m;
+        const spaceVal = n + m;
+        timeActual = ` = O(${n} · ${m}) = ${timeVal} (worst-case)`;
+        spaceActual = ` = O(${n} + ${m}) = ${spaceVal}`;
+      }
+    }
+
+    // Update time complexity
+    const existingTimeActual = timeBigOEl.querySelector(".complexity-actual");
+    if (existingTimeActual) existingTimeActual.remove();
+    timeBigOEl.textContent = timeO || "—";
+    if (timeActual) {
+      const actualEl = document.createElement("span");
+      actualEl.className = "complexity-actual";
+      actualEl.textContent = timeActual;
+      timeBigOEl.appendChild(actualEl);
+    }
+
+    // Update space complexity
+    const existingSpaceActual = spaceBigOEl.querySelector(".complexity-actual");
+    if (existingSpaceActual) existingSpaceActual.remove();
+    spaceBigOEl.textContent = spaceO || "—";
+    if (spaceActual) {
+      const actualEl = document.createElement("span");
+      actualEl.className = "complexity-actual";
+      actualEl.textContent = spaceActual;
+      spaceBigOEl.appendChild(actualEl);
+    }
+
+    if (!steps.length || !step) {
+      timeProgressEl.textContent = "";
+      spaceProgressEl.textContent = n || m ? `n = ${n}, m = ${m}` : "";
+      return;
+    }
+
+    const opsDone = currentStepIndex + 1;
+    const totalOps = steps.length;
+    let timeProgress = `${opsDone}/${totalOps} steps executed`;
+
+    if (algoKey === "bellman-ford-fifo" && step.queueSnapshot) {
+      timeProgress += ` · queue size: ${step.queueSnapshot.length}`;
+    }
+
+    let spaceProgress = `n = ${n}, m = ${m}`;
+    if (algoKey === "bellman-ford-fifo" && step.queueSnapshot) {
+      spaceProgress += ` · queue ≤ ${n}`;
+    }
+
+    timeProgressEl.textContent = timeProgress;
+    spaceProgressEl.textContent = spaceProgress;
+  }
+
+  function updateStepControls() {
+    const hasSteps = steps.length > 0;
+    const nodes = nodeData.get();
+    const source = parseInt(startNodeSelect.value, 10);
+    const canCreateSteps = nodes.length > 0 && !Number.isNaN(source);
+    
+    btnPrev.disabled = !hasSteps || currentStepIndex <= 0;
+    // Enable Next button if we have steps and not at the end, OR if we can create steps
+    btnNext.disabled = hasSteps ? (currentStepIndex >= steps.length - 1) : !canCreateSteps;
+  }
+
+  // --- Stepper controls --------------------------------------------------
+  function ensureSteps() {
+    const nodes = nodeData.get();
+    if (!nodes.length) {
+      flashStatus("Create at least one node for the algorithm to run.", true);
+      return false;
+    }
+    const source = parseInt(startNodeSelect.value, 10);
+    if (Number.isNaN(source)) {
+      flashStatus("Select a source node.", true);
+      return false;
+    }
+    if (!steps.length) {
+      const algo = algorithmSelect.value;
+      if (algo === "relaxation") {
+        steps = createRelaxationSteps(source, "relaxation");
+      } else if (algo === "bellman-ford") {
+        steps = createBellmanFordSteps(source, false);
+      } else if (algo === "bellman-ford-fifo") {
+        steps = createBellmanFordSteps(source, true);
+      } else {
+        steps = createBellmanFordSteps(source, true);
+      }
+      stepTotalLabel.textContent = String(steps.length);
+      currentStepIndex = 0;
+    }
+    updateStepControls();
+    return true;
+  }
+
+  btnNext.addEventListener("click", () => {
+    stopAutoPlay();
+    if (!ensureSteps()) return;
+    if (currentStepIndex < steps.length - 1) {
+      currentStepIndex++;
+    }
+    applyStepVisual(steps[currentStepIndex]);
+    updateStepControls();
+  });
+
+  btnPrev.addEventListener("click", () => {
+    stopAutoPlay();
+    if (!ensureSteps()) return;
+    if (currentStepIndex > 0) {
+      currentStepIndex--;
+    }
+    applyStepVisual(steps[currentStepIndex]);
+    updateStepControls();
+  });
+
+  btnRestart.addEventListener("click", () => {
+    if (!ensureSteps()) return;
+    currentStepIndex = 0;
+    applyStepVisual(steps[currentStepIndex]);
+    updateStepControls();
+  });
+
+  btnRunAuto.addEventListener("click", () => {
+    if (autoPlayTimer) {
+      stopAutoPlay();
+      flashStatus("Auto play paused.");
+      return;
+    }
+    if (!ensureSteps()) return;
+    if (currentStepIndex >= steps.length - 1) currentStepIndex = 0;
+    const baseSpeed = 800;
+    const factor = parseFloat(speedRange.value) || 1;
+    const interval = baseSpeed / factor;
+    applyStepVisual(steps[currentStepIndex]);
+    autoPlayTimer = setInterval(() => {
+      if (currentStepIndex >= steps.length - 1) {
+        stopAutoPlay();
+        flashStatus("Finished all steps.");
+        updateStepControls();
+        return;
+      }
+      currentStepIndex++;
+      applyStepVisual(steps[currentStepIndex]);
+      updateStepControls();
+    }, interval);
+    flashStatus("Auto play running. Click again to pause.");
+  });
+
+  // --- Algorithm Information ----------------------------------------------
+  const ALGORITHM_INFO = {
+    relaxation: {
+      description: "Single-Source Shortest Path using relaxation technique. Iteratively relaxes all edges (V-1) times to find shortest paths from a source node.",
+      useCases: "• Works for graphs with negative edges\n• Simple to understand\n• Good for small graphs\n• Can detect some negative cycles",
+      differences: "Uses a fixed number of iterations (V-1) regardless of convergence."
+    },
+    "bellman-ford": {
+      description: "Bellman-Ford algorithm finds shortest paths from a source to all nodes, even with negative edge weights. Detects negative cycles.",
+      useCases: "• Graphs with negative edge weights\n• Detecting negative cycles\n• When Dijkstra's cannot be used\n• Network routing protocols",
+      differences: "Always performs V-1 passes, then checks for negative cycles in a final pass."
+    },
+    "bellman-ford-fifo": {
+      description: "Bellman-Ford optimized with FIFO queue. Only processes nodes whose distances were updated, potentially faster than standard Bellman-Ford.",
+      useCases: "• Graphs with negative edges\n• When most nodes don't need updates\n• Faster than standard Bellman-Ford in practice\n• Network routing",
+      differences: "Uses a queue to only process updated nodes, reducing unnecessary work. Still detects negative cycles."
+    },
+  };
+
+  function updateAlgorithmInfo() {
+    if (!algorithmInfoPanel) return;
+    const algo = algorithmSelect.value;
+    const info = ALGORITHM_INFO[algo] || {};
+    const descEl = algorithmInfoPanel.querySelector("#algorithm-description");
+    const useCasesEl = algorithmInfoPanel.querySelector("#algorithm-use-cases");
+    const diffEl = algorithmInfoPanel.querySelector("#algorithm-differences");
+    
+    if (descEl) descEl.innerHTML = `<p><strong>Description:</strong> ${info.description || "No description available."}</p>`;
+    if (useCasesEl) useCasesEl.innerHTML = `<p><strong>Use Cases:</strong><br>${(info.useCases || "N/A").replace(/\n/g, "<br>")}</p>`;
+    if (diffEl) diffEl.innerHTML = `<p><strong>Key Differences:</strong> ${info.differences || "N/A"}</p>`;
+  }
+
+  // --- Graph Statistics ----------------------------------------------------
+  function updateGraphStatistics() {
+    if (!graphStatsPanel) return;
+    const nodes = nodeData.get();
+    const edges = edgeData.get();
+    const n = nodes.length;
+    const m = edges.length;
+    
+    const statsContent = graphStatsPanel.querySelector("#graph-stats-content");
+    if (!statsContent) return;
+    
+    // Calculate statistics
+    const directed = chkDirected.checked;
+    const density = n > 1 ? (m / (n * (n - 1) * (directed ? 1 : 2))).toFixed(3) : "0";
+    const avgDegree = n > 0 ? (m / n).toFixed(2) : "0";
+    
+    // Check for negative edges
+    const hasNegativeEdges = edges.some(e => {
+      const w = e.weight ?? parseFloat(e.label);
+      return w < 0;
+    });
+    
+    // Check connectivity (simple check - if all nodes have at least one edge)
+    const isolatedNodes = nodes.filter(n => {
+      return !edges.some(e => e.from === n.id || e.to === n.id);
+    });
+    const isConnected = isolatedNodes.length === 0 && n > 0;
+    
+    statsContent.innerHTML = `
+      <div class="stat-item">
+        <span class="stat-label">Nodes (V)</span>
+        <span class="stat-value">${n}</span>
+      </div>
+      <div class="stat-item">
+        <span class="stat-label">Edges (E)</span>
+        <span class="stat-value">${m}</span>
+      </div>
+      <div class="stat-item">
+        <span class="stat-label">Graph Density</span>
+        <span class="stat-value">${density}</span>
+      </div>
+      <div class="stat-item">
+        <span class="stat-label">Avg Degree</span>
+        <span class="stat-value">${avgDegree}</span>
+      </div>
+      <div class="stat-item">
+        <span class="stat-label">Type</span>
+        <span class="stat-value">${directed ? "Directed" : "Undirected"}</span>
+      </div>
+      <div class="stat-item">
+        <span class="stat-label">Has Negative Edges</span>
+        <span class="stat-value" style="color: ${hasNegativeEdges ? "#f97316" : "#4ade80"}">${hasNegativeEdges ? "Yes" : "No"}</span>
+      </div>
+      <div class="stat-item">
+        <span class="stat-label">Connected</span>
+        <span class="stat-value" style="color: ${isConnected ? "#4ade80" : "#f97316"}">${isConnected ? "Yes" : "No"}</span>
+      </div>
+      <div class="stat-item">
+        <span class="stat-label">Isolated Nodes</span>
+        <span class="stat-value">${isolatedNodes.length}</span>
+      </div>
+    `;
+  }
+
+  // --- Path Reconstruction -------------------------------------------------
+  function reconstructPath(targetId, parentMap, distMap) {
+    if (targetId === null || targetId === undefined) return null;
+    const source = parseInt(startNodeSelect.value, 10);
+    if (Number.isNaN(source)) return null;
+    
+    const path = [];
+    let current = targetId;
+    const visited = new Set();
+    
+    while (current !== null && current !== undefined && !visited.has(current)) {
+      visited.add(current);
+      path.unshift(current);
+      if (current === source) break;
+      current = parentMap.get(current);
+      if (visited.size > 100) break; // Prevent infinite loops
+    }
+    
+    if (path[0] !== source) return null; // No path exists
+    return path;
+  }
+
+  function updatePathReconstruction() {
+    if (!pathReconstructionPanel || !pathTargetSelect) return;
+    
+    const nodes = nodeData.get().sort((a, b) => a.id - b.id);
+    pathTargetSelect.innerHTML = '<option value="">Select target...</option>';
+    
+    nodes.forEach(n => {
+      const opt = document.createElement("option");
+      opt.value = String(n.id);
+      opt.textContent = n.label || idToLabel(n.id);
+      pathTargetSelect.appendChild(opt);
+    });
+    
+    if (steps.length > 0 && currentStepIndex >= 0) {
+      const step = steps[currentStepIndex];
+      if (step && step.parent && step.dist) {
+        pathTargetSelect.addEventListener("change", () => {
+          const targetId = parseInt(pathTargetSelect.value, 10);
+          if (Number.isNaN(targetId)) {
+            pathDisplay.textContent = "";
+            pathVisual.innerHTML = "";
+            return;
+          }
+          
+          const path = reconstructPath(targetId, step.parent, step.dist);
+          if (path) {
+            const pathLabels = path.map(id => {
+              const node = nodeData.get(id);
+              return node?.label || idToLabel(id);
+            });
+            const dist = step.dist.get(targetId);
+            const distStr = dist === Infinity || dist === undefined ? "∞" : dist.toFixed(2);
+            
+            pathDisplay.textContent = `Path: ${pathLabels.join(" → ")} | Distance: ${distStr}`;
+            
+            // Visual path
+            pathVisual.innerHTML = path.map((id, idx) => {
+              const node = nodeData.get(id);
+              const label = node?.label || idToLabel(id);
+              return `<span class="path-node">${label}</span>${idx < path.length - 1 ? '<span class="path-arrow">→</span>' : ''}`;
+            }).join('');
+            
+            // Highlight path on graph
+            highlightPathOnGraph(path);
+          } else {
+            pathDisplay.textContent = "No path exists from source to target.";
+            pathVisual.innerHTML = "";
+          }
+        });
+      }
+    }
+  }
+
+  function highlightPathOnGraph(path) {
+    if (!path || path.length < 2) return;
+    
+    // Reset all edges
+    const allEdges = edgeData.get();
+    allEdges.forEach(e => {
+      edgeData.update({
+        id: e.id,
+        color: { color: "rgba(148,163,184,0.7)" },
+        width: 1.5,
+      });
+    });
+    
+    // Highlight path edges
+    for (let i = 0; i < path.length - 1; i++) {
+      const from = path[i];
+      const to = path[i + 1];
+      const edge = allEdges.find(e => e.from === from && e.to === to);
+      if (edge) {
+        edgeData.update({
+          id: edge.id,
+          color: { color: "#4ade80" },
+          width: 3,
+        });
+      }
+    }
+  }
+
+  // --- Algorithm Statistics ------------------------------------------------
+  function updateAlgorithmStatistics(step) {
+    if (!algorithmStatsPanel) return;
+    const statsContent = algorithmStatsPanel.querySelector("#algorithm-stats-content");
+    if (!statsContent) return;
+    
+    const nodes = nodeData.get();
+    if (!nodes.length) {
+      statsContent.innerHTML = "<div class='stat-item'><span class='stat-label' style='color: var(--text-soft);'>No nodes in the graph. Add nodes to see algorithm statistics.</span></div>";
+      return;
+    }
+    
+    if (!step || !steps.length) {
+      statsContent.innerHTML = "<div class='stat-item'><span class='stat-label' style='color: var(--text-soft);'>No algorithm running. Select a source node and run an algorithm.</span></div>";
+      return;
+    }
+    
+    const relaxations = steps.slice(0, currentStepIndex + 1).filter(s => s.relaxedNode !== null && s.relaxedNode !== undefined).length;
+    const nodesVisited = new Set();
+    steps.slice(0, currentStepIndex + 1).forEach(s => {
+      if (s.highlightNode !== null && s.highlightNode !== undefined) nodesVisited.add(s.highlightNode);
+      if (s.u !== undefined) nodesVisited.add(s.u);
+      if (s.v !== undefined) nodesVisited.add(s.v);
+    });
+    
+    const edgesProcessed = steps.slice(0, currentStepIndex + 1).filter(s => s.highlightEdge).length;
+    const queueSize = step.queueSnapshot ? step.queueSnapshot.length : 0;
+    
+    statsContent.innerHTML = `
+      <div class="stat-item">
+        <span class="stat-label">Steps Executed</span>
+        <span class="stat-value">${currentStepIndex + 1} / ${steps.length}</span>
+      </div>
+      <div class="stat-item">
+        <span class="stat-label">Relaxations</span>
+        <span class="stat-value">${relaxations}</span>
+      </div>
+      <div class="stat-item">
+        <span class="stat-label">Nodes Visited</span>
+        <span class="stat-value">${nodesVisited.size}</span>
+      </div>
+      <div class="stat-item">
+        <span class="stat-label">Edges Processed</span>
+        <span class="stat-value">${edgesProcessed}</span>
+      </div>
+      ${algorithmSelect.value === "bellman-ford-fifo" ? `
+      <div class="stat-item">
+        <span class="stat-label">Queue Size</span>
+        <span class="stat-value">${queueSize}</span>
+      </div>
+      ` : ''}
+    `;
+  }
+
+  // --- Performance Metrics ------------------------------------------------
+  function updatePerformanceMetrics(step) {
+    if (!performancePanel) return;
+    const perfContent = performancePanel.querySelector("#performance-content");
+    if (!perfContent) return;
+    
+    const nodes = nodeData.get();
+    if (!nodes.length) {
+      perfContent.innerHTML = "<div class='stat-item'><span class='stat-label' style='color: var(--text-soft);'>No nodes in the graph. Add nodes to see performance metrics.</span></div>";
+      return;
+    }
+    
+    if (!step || !steps.length) {
+      perfContent.innerHTML = "<div class='stat-item'><span class='stat-label' style='color: var(--text-soft);'>No algorithm running. Select a source node and run an algorithm.</span></div>";
+      return;
+    }
+    
+    const totalSteps = steps.length;
+    const progress = ((currentStepIndex + 1) / totalSteps) * 100;
+    const startTime = performance.now();
+    
+    perfContent.innerHTML = `
+      <div class="stat-item">
+        <span class="stat-label">Progress</span>
+        <span class="stat-value">${progress.toFixed(1)}%</span>
+      </div>
+      <div class="performance-bar">
+        <div class="performance-fill" style="width: ${progress}%"></div>
+      </div>
+      <div class="stat-item">
+        <span class="stat-label">Operations/sec</span>
+        <span class="stat-value">${(currentStepIndex + 1).toFixed(0)}</span>
+      </div>
+    `;
+  }
+
+  // --- Export/Import -------------------------------------------------------
+  function exportGraph() {
+    const nodes = nodeData.get();
+    const edges = edgeData.get();
+    const graphData = {
+      nodes: nodes.map(n => ({
+        id: n.id,
+        label: n.label || idToLabel(n.id),
+        x: n.x,
+        y: n.y
+      })),
+      edges: edges.map(e => ({
+        from: e.from,
+        to: e.to,
+        weight: e.weight ?? parseFloat(e.label),
+        label: e.label,
+        arrows: e.arrows
+      })),
+      directed: chkDirected.checked,
+      metadata: {
+        exportedAt: new Date().toISOString(),
+        nodeCount: nodes.length,
+        edgeCount: edges.length
+      }
+    };
+    
+    const dataStr = JSON.stringify(graphData, null, 2);
+    const dataBlob = new Blob([dataStr], { type: "application/json" });
+    const url = URL.createObjectURL(dataBlob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `graph_${Date.now()}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+    flashStatus("Graph exported successfully.");
+  }
+
+  function importGraph() {
+    importFileInput.click();
+  }
+
+  importFileInput.addEventListener("change", (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const graphData = JSON.parse(event.target.result);
+        resetGraph();
+        
+        // Import nodes
+        graphData.nodes.forEach(n => {
+          nodeData.add({
+            id: n.id,
+            label: n.label || idToLabel(n.id),
+            color: {
+              background: "rgba(15,23,42,0.9)",
+              border: nodeBaseColor(n.id),
+            },
+            x: n.x,
+            y: n.y
+          });
+        });
+        
+        // Import edges
+        graphData.edges.forEach(e => {
+          edgeData.add({
+            id: `${e.from}-${e.to}-${Date.now()}`,
+            from: e.from,
+            to: e.to,
+            label: String(e.weight ?? e.label),
+            weight: e.weight ?? parseFloat(e.label),
+            arrows: graphData.directed ? (e.arrows || "to") : ""
+          });
+        });
+        
+        if (graphData.directed !== undefined) {
+          chkDirected.checked = graphData.directed;
+        }
+        
+        refreshStartNodeOptions();
+        updateGraphStatistics();
+        graphNetwork.fit({ animation: false });
+        flashStatus("Graph imported successfully.");
+      } catch (err) {
+        flashStatus("Error importing graph: " + err.message, true);
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = ""; // Reset input
+  });
+
+  // --- Enhanced Controls ---------------------------------------------------
+  btnPause.addEventListener("click", () => {
+    if (isPaused) {
+      // Resume
+      isPaused = false;
+      btnPause.textContent = "⏸ Pause";
+      btnRunAuto.textContent = "Auto Play";
+      if (autoPlayTimer) {
+        const baseSpeed = 800;
+        const factor = parseFloat(speedRange.value) || 1;
+        const interval = baseSpeed / factor;
+        autoPlayTimer = setInterval(() => {
+          if (currentStepIndex >= steps.length - 1) {
+            stopAutoPlay();
+            flashStatus("Finished all steps.");
+            updateStepControls();
+            return;
+          }
+          currentStepIndex++;
+          applyStepVisual(steps[currentStepIndex]);
+          updateStepControls();
+        }, interval);
+      }
+    } else {
+      // Pause
+      isPaused = true;
+      stopAutoPlay();
+      btnPause.textContent = "▶ Resume";
+    }
+  });
+
+  btnJump.addEventListener("click", () => {
+    const targetStep = parseInt(stepJumpInput.value, 10) - 1;
+    if (!Number.isNaN(targetStep) && targetStep >= 0 && targetStep < steps.length) {
+      stopAutoPlay();
+      currentStepIndex = targetStep;
+      applyStepVisual(steps[currentStepIndex]);
+      updateStepControls();
+      stepJumpInput.value = "";
+      flashStatus(`Jumped to step ${targetStep + 1}`);
+    }
+  });
+
+  chkLabels.addEventListener("change", () => {
+    labelsVisible = chkLabels.checked;
+    const nodes = nodeData.get();
+    nodes.forEach(n => {
+      nodeData.update({
+        id: n.id,
+        label: labelsVisible ? (n.label || idToLabel(n.id)) : ""
+      });
+    });
+  });
+
+  // --- Edge Weight Editor --------------------------------------------------
+  let editingEdge = null;
+  let edgeWeightEditor = null;
+
+  graphNetwork.on("oncontext", (params) => {
+    params.event.preventDefault();
+    const pointer = graphNetwork.getPositions([params.nodes[0]]);
+    if (params.nodes.length > 0) {
+      // Node context menu could go here
+    } else if (params.edges.length > 0) {
+      const edgeId = params.edges[0];
+      const edge = edgeData.get(edgeId);
+      if (edge) {
+        editingEdge = edge;
+        showEdgeWeightEditor(params.event, edge);
+      }
+    }
+  });
+
+  function showEdgeWeightEditor(event, edge) {
+    if (edgeWeightEditor) {
+      document.body.removeChild(edgeWeightEditor);
+    }
+    
+    edgeWeightEditor = document.createElement("div");
+    edgeWeightEditor.className = "edge-weight-editor";
+    edgeWeightEditor.style.left = event.clientX + "px";
+    edgeWeightEditor.style.top = event.clientY + "px";
+    
+    const input = document.createElement("input");
+    input.type = "number";
+    input.step = "0.1";
+    input.value = edge.weight ?? parseFloat(edge.label);
+    
+    const saveBtn = document.createElement("button");
+    saveBtn.textContent = "Save";
+    saveBtn.onclick = () => {
+      const newWeight = parseFloat(input.value);
+      if (!Number.isNaN(newWeight)) {
+        edgeData.update({
+          id: edge.id,
+          label: String(newWeight),
+          weight: newWeight
+        });
+        updateGraphStatistics();
+        clearSteps();
+        flashStatus("Edge weight updated.");
+      }
+      document.body.removeChild(edgeWeightEditor);
+      edgeWeightEditor = null;
+      editingEdge = null;
+    };
+    
+    const cancelBtn = document.createElement("button");
+    cancelBtn.textContent = "Cancel";
+    cancelBtn.onclick = () => {
+      document.body.removeChild(edgeWeightEditor);
+      edgeWeightEditor = null;
+      editingEdge = null;
+    };
+    
+    edgeWeightEditor.appendChild(input);
+    edgeWeightEditor.appendChild(saveBtn);
+    edgeWeightEditor.appendChild(cancelBtn);
+    document.body.appendChild(edgeWeightEditor);
+    
+    input.focus();
+    input.select();
+  }
+
+  // --- Comparison Mode ----------------------------------------------------
+  function showComparisonMode() {
+    comparisonMode = true;
+    comparisonModal.style.display = "flex";
+    
+    const comparisonContent = comparisonModal.querySelector("#comparison-content");
+    if (!comparisonContent) return;
+    
+    const nodes = nodeData.get();
+    const source = parseInt(startNodeSelect.value, 10);
+    if (!nodes.length || Number.isNaN(source)) {
+      flashStatus("Create a graph and select a source node first.", true);
+      comparisonModal.style.display = "none";
+      return;
+    }
+    
+    const algorithms = ["relaxation", "bellman-ford", "bellman-ford-fifo"];
+    comparisonContent.innerHTML = "";
+    
+    algorithms.forEach(algo => {
+      try {
+        let algoSteps = [];
+        if (algo === "relaxation") {
+          algoSteps = createRelaxationSteps(source, "relaxation");
+        } else if (algo === "bellman-ford") {
+          algoSteps = createBellmanFordSteps(source, false);
+        } else if (algo === "bellman-ford-fifo") {
+          algoSteps = createBellmanFordSteps(source, true);
+        }
+        
+        const finalStep = algoSteps[algoSteps.length - 1];
+        const relaxations = algoSteps.filter(s => s.relaxedNode !== null).length;
+        
+        const item = document.createElement("div");
+        item.className = "comparison-item";
+        item.innerHTML = `
+          <h3>${algo.replace(/-/g, " ").replace(/\b\w/g, l => l.toUpperCase())}</h3>
+          <div class="stat-row">
+            <span>Total Steps:</span>
+            <span>${algoSteps.length}</span>
+          </div>
+          <div class="stat-row">
+            <span>Relaxations:</span>
+            <span>${relaxations}</span>
+          </div>
+          <div class="stat-row">
+            <span>Time Complexity:</span>
+            <span>${algo === "dijkstra" ? "O(V log V + E)" : "O(V · E)"}</span>
+          </div>
+        `;
+        comparisonContent.appendChild(item);
+      } catch (err) {
+        // Algorithm not available
+      }
+    });
+  }
+
+  $("btn-close-comparison").addEventListener("click", () => {
+    comparisonModal.style.display = "none";
+    comparisonMode = false;
+  });
+
+  // --- Tutorial/Help -------------------------------------------------------
+  const TUTORIAL_STEPS = [
+    {
+      title: "Welcome!",
+      content: "This visualizer helps you understand shortest path algorithms. Start by building a graph or selecting a preset."
+    },
+    {
+      title: "Building a Graph",
+      content: "Click '+ Node' to add nodes. Enter a custom label (optional). Add edges by specifying 'from', 'to', and 'weight' values."
+    },
+    {
+      title: "Running Algorithms",
+      content: "Select an algorithm from the dropdown, choose a source node, then click 'Next' to step through or 'Auto Play' to animate."
+    },
+    {
+      title: "Understanding the Visualization",
+      content: "Watch how distances update in the table, see the parent tree form, and observe the code execution. Green highlights show active operations."
+    },
+    {
+      title: "Path Reconstruction",
+      content: "Use the Path Reconstruction panel to see the actual shortest path from source to any target node. The path will be highlighted on the graph."
+    },
+    {
+      title: "Export & Import",
+      content: "Save your graphs as JSON files and load them later. Great for sharing examples or saving your work."
+    }
+  ];
+
+  function showTutorial() {
+    tutorialModal.style.display = "flex";
+    const tutorialContent = tutorialModal.querySelector("#tutorial-content");
+    if (!tutorialContent) return;
+    
+    tutorialContent.innerHTML = TUTORIAL_STEPS.map((step, idx) => `
+      <div class="tutorial-step">
+        <h3>Step ${idx + 1}: ${step.title}</h3>
+        <p>${step.content}</p>
+      </div>
+    `).join("");
+  }
+
+  $("btn-close-tutorial").addEventListener("click", () => {
+    tutorialModal.style.display = "none";
+  });
+
+  // --- Info Panel Toggles --------------------------------------------------
+  document.querySelectorAll(".info-panel-toggle").forEach(toggle => {
+    toggle.addEventListener("click", () => {
+      const panel = toggle.closest(".info-panel");
+      if (panel) {
+        panel.classList.toggle("collapsed");
+        toggle.textContent = panel.classList.contains("collapsed") ? "+" : "−";
+      }
+    });
+  });
+
+  // --- Event Listeners for New Features ------------------------------------
+  if (btnAlgorithmInfo) {
+    btnAlgorithmInfo.addEventListener("click", () => {
+      algorithmInfoPanel.classList.toggle("collapsed");
+      const toggle = algorithmInfoPanel.querySelector(".info-panel-toggle");
+      if (toggle) toggle.textContent = algorithmInfoPanel.classList.contains("collapsed") ? "+" : "−";
+      updateAlgorithmInfo();
+    });
+  }
+
+  if (btnHelp) btnHelp.addEventListener("click", showTutorial);
+  if (btnExport) btnExport.addEventListener("click", exportGraph);
+  if (btnImport) btnImport.addEventListener("click", importGraph);
+  if (btnCompare) btnCompare.addEventListener("click", showComparisonMode);
+
+  // Update algorithm info when algorithm changes
+  algorithmSelect.addEventListener("change", () => {
+    updateAlgorithmInfo();
+    renderPseudoAndCode();
+    clearSteps();
+  });
+
+  // Update statistics when graph changes
+  nodeData.on("add", () => {
+    updateGraphStatistics();
+    const nodes = nodeData.get();
+    if (!nodes.length) {
+      updateAlgorithmStatistics(null);
+      updatePerformanceMetrics(null);
+    }
+  });
+  nodeData.on("remove", () => {
+    updateGraphStatistics();
+    const nodes = nodeData.get();
+    if (!nodes.length) {
+      updateAlgorithmStatistics(null);
+      updatePerformanceMetrics(null);
+    }
+  });
+  nodeData.on("update", updateGraphStatistics);
+  edgeData.on("add", updateGraphStatistics);
+  edgeData.on("remove", updateGraphStatistics);
+  edgeData.on("update", updateGraphStatistics);
+
+  // --- Initial state -----------------------------------------------------
+  // Initialize toggle button states for all panels
+  document.querySelectorAll(".info-panel").forEach(panel => {
+    const toggle = panel.querySelector(".info-panel-toggle");
+    if (toggle) {
+      toggle.textContent = panel.classList.contains("collapsed") ? "+" : "−";
+    }
+  });
+  
+  // Initialize labels checkbox state
+  if (chkLabels) {
+    labelsVisible = chkLabels.checked;
+  }
+  
+  // Update algorithm info (even if collapsed)
+  updateAlgorithmInfo();
+  
+  // Initialize source node dropdown
+  refreshStartNodeOptions();
+  
+  // Check if there are no nodes and update panels accordingly
+  const initialNodes = nodeData.get();
+  if (!initialNodes.length) {
+    updateAlgorithmStatistics(null);
+    updatePerformanceMetrics(null);
+  }
+  
+  renderPseudoAndCode();
+  if (speedValueLabel && speedRange) {
+    speedValueLabel.textContent = `${parseFloat(speedRange.value).toFixed(1)}x`;
+    speedRange.addEventListener("input", () => {
+      speedValueLabel.textContent = `${parseFloat(speedRange.value).toFixed(1)}x`;
+    });
+    // Allow controlling speed slider with mouse wheel
+    speedRange.addEventListener("wheel", (event) => {
+      event.preventDefault();
+      const step = parseFloat(speedRange.step) || 0.1;
+      const min = parseFloat(speedRange.min) || 0.1;
+      const max = parseFloat(speedRange.max) || 2.0;
+      const delta = event.deltaY < 0 ? step : -step;
+      let next = parseFloat(speedRange.value) + delta;
+      if (Number.isNaN(next)) next = 1;
+      next = Math.min(max, Math.max(min, next));
+      // Snap to one decimal
+      next = Math.round(next * 10) / 10;
+      speedRange.value = String(next);
+      speedValueLabel.textContent = `${next.toFixed(1)}x`;
+    }, { passive: false });
+  }
+  updateStepControls();
+  updateComplexityPanel(null);
+  flashStatus("Ready. Build a graph or choose a preset to begin.");
+
+  // --- Panel Resize Functionality -----------------------------------------
+  const appMain = document.querySelector('.app-main');
+  const leftPanel = document.querySelector('.panel-parent');
+  const middlePanel = document.querySelector('.panel-graph');
+  const rightPanel = document.querySelector('.panel-code');
+  const resizeHandleLeft = $('resize-handle-left');
+  const resizeHandleRight = $('resize-handle-right');
+
+  // Load saved widths from localStorage
+  function loadPanelWidths() {
+    const savedLeft = localStorage.getItem('panel-left-width');
+    const savedMiddle = localStorage.getItem('panel-middle-width');
+    const savedRight = localStorage.getItem('panel-right-width');
+    
+    if (savedLeft) {
+      document.documentElement.style.setProperty('--panel-left-width', savedLeft);
+    }
+    if (savedMiddle) {
+      document.documentElement.style.setProperty('--panel-middle-width', savedMiddle);
+    }
+    if (savedRight) {
+      document.documentElement.style.setProperty('--panel-right-width', savedRight);
+    }
+  }
+
+  // Save widths to localStorage
+  function savePanelWidths() {
+    const leftWidth = getComputedStyle(document.documentElement).getPropertyValue('--panel-left-width');
+    const middleWidth = getComputedStyle(document.documentElement).getPropertyValue('--panel-middle-width');
+    const rightWidth = getComputedStyle(document.documentElement).getPropertyValue('--panel-right-width');
+    
+    if (leftWidth) localStorage.setItem('panel-left-width', leftWidth.trim());
+    if (middleWidth) localStorage.setItem('panel-middle-width', middleWidth.trim());
+    if (rightWidth) localStorage.setItem('panel-right-width', rightWidth.trim());
+  }
+
+  // Initialize with saved widths
+  loadPanelWidths();
+
+  // Resize handler for panel dividers
+  function setupResizeHandle(handle, panel1, panel2, isLeftHandle) {
+    let isResizing = false;
+    let startX = 0;
+    let startPanel1Width = 0;
+    let startPanel2Width = 0;
+    let startPanel3Width = 0;
+
+    handle.addEventListener('mousedown', (e) => {
+      isResizing = true;
+      handle.classList.add('resizing');
+      startX = e.clientX;
+      
+      const appMainRect = appMain.getBoundingClientRect();
+      const panel1Rect = panel1.getBoundingClientRect();
+      const panel2Rect = panel2.getBoundingClientRect();
+      const panel3Rect = isLeftHandle ? rightPanel.getBoundingClientRect() : leftPanel.getBoundingClientRect();
+      
+      startPanel1Width = (panel1Rect.width / appMainRect.width) * 100;
+      startPanel2Width = (panel2Rect.width / appMainRect.width) * 100;
+      startPanel3Width = (panel3Rect.width / appMainRect.width) * 100;
+
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+      e.preventDefault();
+    });
+
+    document.addEventListener('mousemove', (e) => {
+      if (!isResizing) return;
+
+      const appMainRect = appMain.getBoundingClientRect();
+      const deltaX = e.clientX - startX;
+      const deltaPercent = (deltaX / appMainRect.width) * 100;
+
+      let newPanel1Width = startPanel1Width + deltaPercent;
+      let newPanel2Width = startPanel2Width - deltaPercent;
+
+      // Apply min/max constraints
+      if (isLeftHandle) {
+        // Left panel: min 260px, max 50%
+        const minLeftPx = 260;
+        const minLeftPercent = (minLeftPx / appMainRect.width) * 100;
+        const maxLeftPercent = 50;
+        newPanel1Width = Math.max(minLeftPercent, Math.min(maxLeftPercent, newPanel1Width));
+        
+        // Middle panel: min 360px
+        const minMiddlePx = 360;
+        const minMiddlePercent = (minMiddlePx / appMainRect.width) * 100;
+        newPanel2Width = Math.max(minMiddlePercent, newPanel2Width);
+        
+        // Ensure right panel doesn't get too small (min 280px)
+        const minRightPx = 280;
+        const minRightPercent = (minRightPx / appMainRect.width) * 100;
+        const remainingForRight = 100 - newPanel1Width - newPanel2Width;
+        
+        if (remainingForRight < minRightPercent) {
+          newPanel2Width = 100 - newPanel1Width - minRightPercent;
+        }
+        
+        document.documentElement.style.setProperty('--panel-left-width', `${newPanel1Width}%`);
+        document.documentElement.style.setProperty('--panel-middle-width', `${newPanel2Width}%`);
+      } else {
+        // Right panel: min 280px, max 50%
+        const minRightPx = 280;
+        const minRightPercent = (minRightPx / appMainRect.width) * 100;
+        const maxRightPercent = 50;
+        newPanel2Width = Math.max(minRightPercent, Math.min(maxRightPercent, newPanel2Width));
+        
+        // Middle panel: min 360px
+        const minMiddlePx = 360;
+        const minMiddlePercent = (minMiddlePx / appMainRect.width) * 100;
+        newPanel1Width = Math.max(minMiddlePercent, newPanel1Width);
+        
+        // Ensure left panel doesn't get too small (min 260px)
+        const minLeftPx = 260;
+        const minLeftPercent = (minLeftPx / appMainRect.width) * 100;
+        const remainingForLeft = 100 - newPanel1Width - newPanel2Width;
+        
+        if (remainingForLeft < minLeftPercent) {
+          newPanel1Width = 100 - newPanel2Width - minLeftPercent;
+        }
+        
+        document.documentElement.style.setProperty('--panel-middle-width', `${newPanel1Width}%`);
+        document.documentElement.style.setProperty('--panel-right-width', `${newPanel2Width}%`);
+      }
+
+      e.preventDefault();
+    });
+
+    document.addEventListener('mouseup', () => {
+      if (isResizing) {
+        isResizing = false;
+        handle.classList.remove('resizing');
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+        savePanelWidths();
+      }
+    });
+  }
+
+  // Setup both resize handles
+  if (resizeHandleLeft && leftPanel && middlePanel) {
+    setupResizeHandle(resizeHandleLeft, leftPanel, middlePanel, true);
+  }
+  
+  if (resizeHandleRight && middlePanel && rightPanel) {
+    setupResizeHandle(resizeHandleRight, middlePanel, rightPanel, false);
+  }
+
+  // --- Vertical Resize for Parent Canvas -----------------------------------
+  const resizeHandleParent = $('resize-handle-parent');
+  const parentCanvasWrapper = document.querySelector('#parent-canvas-wrapper');
+  const parentCanvasEl = $('parent-canvas');
+
+  // Load saved height from localStorage
+  function loadParentCanvasHeight() {
+    const savedHeight = localStorage.getItem('parent-canvas-height');
+    if (savedHeight) {
+      document.documentElement.style.setProperty('--parent-canvas-height', savedHeight);
+    }
+  }
+
+  // Save height to localStorage
+  function saveParentCanvasHeight() {
+    const height = getComputedStyle(document.documentElement).getPropertyValue('--parent-canvas-height');
+    if (height) localStorage.setItem('parent-canvas-height', height.trim());
+  }
+
+  // Initialize with saved height
+  loadParentCanvasHeight();
+
+  // Vertical resize handler for parent canvas
+  if (resizeHandleParent && parentCanvasEl) {
+    let isResizing = false;
+    let startY = 0;
+    let startHeight = 0;
+
+    resizeHandleParent.addEventListener('mousedown', (e) => {
+      isResizing = true;
+      resizeHandleParent.classList.add('resizing');
+      startY = e.clientY;
+      
+      const rect = parentCanvasEl.getBoundingClientRect();
+      startHeight = rect.height;
+
+      document.body.style.cursor = 'row-resize';
+      document.body.style.userSelect = 'none';
+      e.preventDefault();
+    });
+
+    document.addEventListener('mousemove', (e) => {
+      if (!isResizing) return;
+
+      const deltaY = e.clientY - startY;
+      const newHeight = startHeight + deltaY;
+      
+      // Apply min/max constraints (150px to 80vh)
+      const minHeight = 150;
+      const maxHeight = window.innerHeight * 0.8;
+      const constrainedHeight = Math.max(minHeight, Math.min(maxHeight, newHeight));
+
+      document.documentElement.style.setProperty('--parent-canvas-height', `${constrainedHeight}px`);
+
+      // Redraw the network to fit new size
+      setTimeout(() => {
+        parentNetwork.redraw();
+      }, 0);
+
+      e.preventDefault();
+    });
+
+    document.addEventListener('mouseup', () => {
+      if (isResizing) {
+        isResizing = false;
+        resizeHandleParent.classList.remove('resizing');
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+        saveParentCanvasHeight();
+      }
+    });
+  }
+});
+

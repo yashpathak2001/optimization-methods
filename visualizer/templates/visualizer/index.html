@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+{% load static %}
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Optimization Methods Visualizer</title>
+    <link rel="stylesheet" href="https://unpkg.com/@fontsource-variable/inter@5.0.20/index.css">
+    <link rel="stylesheet" href="https://unpkg.com/@fontsource/fira-code@5.0.0/index.css">
+    <script type="module" src="{% static 'visualizer/app.js' %}"></script>
+    <link rel="stylesheet" href="{% static 'visualizer/styles.css' %}">
+    <script src="https://unpkg.com/vis-network@9.1.6/dist/vis-network.min.js"></script>
+    <link href="https://unpkg.com/vis-network@9.1.6/styles/vis-network.min.css" rel="stylesheet" />
+</head>
+<body>
+<div id="app-root" class="app-root">
+    <header class="app-header">
+        <div class="app-title">
+            <span class="app-title-main">Optimization Methods</span>
+            <span class="app-title-sub">Shortest Path & Bellman-Ford Visual Studio</span>
+        </div>
+        <div class="app-controls">
+            <div class="field-group horizontal">
+                <button id="btn-algorithm-info" class="ghost-button" title="Algorithm Information">ℹ️ Info</button>
+                <button id="btn-help" class="ghost-button" title="Help & Tutorial">❓ Help</button>
+                <button id="btn-export" class="ghost-button" title="Export Graph">💾 Export</button>
+                <button id="btn-import" class="ghost-button" title="Import Graph">📁 Import</button>
+                <button id="btn-compare" class="ghost-button" title="Comparison Mode">⚖️ Compare</button>
+            </div>
+            <div class="field-group algorithm-center">
+                <label for="algorithm-select">Algorithm</label>
+                <select id="algorithm-select">
+                    <option value="relaxation">Single-Source Shortest Path (Relaxation)</option>
+                    <option value="bellman-ford">Bellman-Ford</option>
+                    <option value="bellman-ford-fifo">Bellman-Ford (FIFO Queue)</option>
+                </select>
+            </div>
+            <div class="field-group">
+                <label for="start-node-select">Source Node</label>
+                <select id="start-node-select"></select>
+            </div>
+            <div class="field-group horizontal">
+                <label for="speed-range">Speed</label>
+                <div class="speed-control">
+                    <input id="speed-range" type="range" min="0.1" max="2.0" step="0.1" value="1" />
+                    <div class="speed-scale">
+                        <span class="speed-mark">0.1x</span>
+                        <span id="speed-value" class="speed-value">1.0x</span>
+                        <span class="speed-mark">2.0x</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <main class="app-main">
+        <!-- Left column: Parent subgraph + Info panels -->
+        <section class="panel panel-parent">
+            <div class="panel-body">
+                <!-- Algorithm Info Panel -->
+                <div id="algorithm-info-panel" class="info-panel collapsed">
+                    <div class="info-panel-header">
+                        <span class="info-panel-title">Algorithm Information</span>
+                        <button class="info-panel-toggle">+</button>
+                    </div>
+                    <div class="info-panel-content">
+                        <div id="algorithm-description" class="algorithm-description"></div>
+                        <div id="algorithm-use-cases" class="algorithm-use-cases"></div>
+                        <div id="algorithm-differences" class="algorithm-differences"></div>
+                    </div>
+                </div>
+                <!-- Graph Statistics Panel -->
+                <div id="graph-stats-panel" class="info-panel collapsed">
+                    <div class="info-panel-header">
+                        <span class="info-panel-title">Graph Statistics</span>
+                        <button class="info-panel-toggle">+</button>
+                    </div>
+                    <div class="info-panel-content">
+                        <div id="graph-stats-content" class="stats-content"></div>
+                    </div>
+                </div>
+                <!-- Parent Subgraph Panel -->
+                <div id="parent-subgraph-panel" class="info-panel">
+                    <div class="info-panel-header">
+                        <span class="info-panel-title">Parent Subgraph</span>
+                        <div class="info-panel-header-actions">
+                            <button id="btn-zoom-in-parent" class="ghost-button tiny" title="Zoom In">+</button>
+                            <button id="btn-zoom-out-parent" class="ghost-button tiny" title="Zoom Out">−</button>
+                            <button id="btn-center-parent" class="ghost-button tiny">Center</button>
+                            <button class="info-panel-toggle">−</button>
+                        </div>
+                    </div>
+                    <div class="info-panel-content">
+                        <div id="parent-canvas-wrapper" class="canvas-wrapper">
+                            <div id="parent-canvas" class="graph-canvas mini"></div>
+                            <div class="resize-handle-vertical" id="resize-handle-parent"></div>
+                        </div>
+                        <div id="step-info" class="step-info">
+                            <div class="step-title">
+                                Step <span id="step-index">0</span>/<span id="step-total">0</span>
+                            </div>
+                            <div id="step-description" class="step-description">
+                                Build a graph and press "Auto Play" or use "Next".
+                            </div>
+                            <div id="distance-list" class="distance-list"></div>
+                        </div>
+                        <div id="algorithm-table" class="algorithm-table">
+                            <table>
+                                <thead>
+                                    <tr id="table-header-row"></tr>
+                                </thead>
+                                <tbody>
+                                    <tr id="table-nodes-row">
+                                        <td class="table-label">Node</td>
+                                    </tr>
+                                    <tr id="table-parents-row">
+                                        <td class="table-label">Parent</td>
+                                    </tr>
+                                    <tr id="table-distances-row">
+                                        <td class="table-label">Distance</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                        <div id="complexity-panel" class="complexity-panel">
+                            <div class="complexity-title">Complexity</div>
+                            <div class="complexity-row">
+                                <div class="complexity-label">Time</div>
+                                <div class="complexity-value">
+                                    <span id="time-big-o" class="complexity-big-o">O(1)</span>
+                                    <span id="time-progress" class="complexity-meta"></span>
+                                </div>
+                            </div>
+                            <div class="complexity-row">
+                                <div class="complexity-label">Space</div>
+                                <div class="complexity-value">
+                                    <span id="space-big-o" class="complexity-big-o">O(1)</span>
+                                    <span id="space-progress" class="complexity-meta"></span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <!-- Path Reconstruction Panel -->
+                <div id="path-reconstruction-panel" class="info-panel collapsed">
+                    <div class="info-panel-header">
+                        <span class="info-panel-title">Path Reconstruction</span>
+                        <button class="info-panel-toggle">+</button>
+                    </div>
+                    <div class="info-panel-content">
+                        <div class="path-selector">
+                            <label for="path-target-select">Target Node:</label>
+                            <select id="path-target-select"></select>
+                        </div>
+                        <div id="path-display" class="path-display"></div>
+                        <div id="path-visual" class="path-visual"></div>
+                    </div>
+                </div>
+                <!-- Algorithm Statistics Panel -->
+                <div id="algorithm-stats-panel" class="info-panel collapsed">
+                    <div class="info-panel-header">
+                        <span class="info-panel-title">Algorithm Statistics</span>
+                        <button class="info-panel-toggle">+</button>
+                    </div>
+                    <div class="info-panel-content">
+                        <div id="algorithm-stats-content" class="stats-content"></div>
+                    </div>
+                </div>
+                <!-- Performance Metrics Panel -->
+                <div id="performance-panel" class="info-panel collapsed">
+                    <div class="info-panel-header">
+                        <span class="info-panel-title">Performance Metrics</span>
+                        <button class="info-panel-toggle">+</button>
+                    </div>
+                    <div class="info-panel-content">
+                        <div id="performance-content" class="stats-content"></div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <div class="resize-handle" id="resize-handle-left"></div>
+
+        <!-- Middle column: Graph builder -->
+        <section class="panel panel-graph">
+            <div class="panel-header">
+                <span class="panel-title">Graph Builder</span>
+                <div class="panel-header-actions">
+                    <select id="default-graph-select">
+                        <option value="">Custom graph</option>
+                        <option value="simple">Simple demo graph</option>
+                        <option value="neg-cycle">Negative cycle example</option>
+                        <option value="grid">Grid-like graph</option>
+                    </select>
+                    <button id="btn-zoom-in-graph" class="ghost-button" title="Zoom In">+</button>
+                    <button id="btn-zoom-out-graph" class="ghost-button" title="Zoom Out">−</button>
+                    <button id="btn-center-graph" class="ghost-button">Center</button>
+                    <button id="btn-reset-graph" class="ghost-button">Reset</button>
+                    <button id="btn-run-auto" class="primary-button subtle">Auto Play</button>
+                </div>
+            </div>
+
+            <div class="graph-layout">
+                <div class="graph-builder">
+                    <div id="graph-canvas" class="graph-canvas"></div>
+                    <div class="graph-toolbar">
+                        <div class="toolbar-group">
+                            <span class="toolbar-label">Nodes</span>
+                            <input id="node-label" class="tiny-input" placeholder="label (optional)" />
+                            <button id="btn-add-node" class="tiny-button">+ Node</button>
+                            <button id="btn-remove-node" class="tiny-button">− Node</button>
+                        </div>
+                        <div class="toolbar-group">
+                            <span class="toolbar-label">Edge</span>
+                            <input id="edge-from" class="tiny-input" placeholder="from" />
+                            <input id="edge-to" class="tiny-input" placeholder="to" />
+                            <input id="edge-weight" class="tiny-input" placeholder="w" type="number" />
+                            <button id="btn-add-edge" class="tiny-button">Add</button>
+                        </div>
+                        <div class="toolbar-group">
+                            <span class="toolbar-label">Options</span>
+                            <label class="tiny-checkbox">
+                                <input id="chk-directed" type="checkbox" checked />
+                                <span>Directed</span>
+                            </label>
+                            <label class="tiny-checkbox">
+                                <input id="chk-physics" type="checkbox" checked />
+                                <span>Jelly physics</span>
+                            </label>
+                            <label class="tiny-checkbox">
+                                <input id="chk-labels" type="checkbox" checked />
+                                <span>Labels</span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="playback-bar">
+                <div class="playback-controls">
+                    <button id="btn-prev" class="ghost-button">&larr; Previous</button>
+                    <button id="btn-pause" class="ghost-button" style="display: none;">⏸ Pause</button>
+                    <button id="btn-next" class="primary-button">Next &rarr;</button>
+                    <button id="btn-restart" class="ghost-button">Restart</button>
+                    <input id="step-jump-input" type="number" min="1" placeholder="Step" class="tiny-input" style="width: 60px;" />
+                    <button id="btn-jump" class="ghost-button">Jump</button>
+                </div>
+                <div class="playback-status">
+                    <span id="status-label">Ready.</span>
+                </div>
+            </div>
+        </section>
+
+        <div class="resize-handle" id="resize-handle-right"></div>
+
+        <!-- Right column: Pseudo-code + code -->
+        <section class="panel panel-code">
+            <div class="panel-header">
+                <span class="panel-title">Algorithm View</span>
+            </div>
+            <div class="panel-body code-body">
+                <div class="code-section pseudo-section">
+                    <div class="code-section-header">Pseudo-code</div>
+                    <pre id="pseudo-panel" class="code-block pseudo-block"></pre>
+                </div>
+                <div class="code-section code-section--code">
+                    <div class="code-section-header code-section-header--code">
+                        <span>Code</span>
+                        <div class="language-select">
+                            <label for="language-select">Language</label>
+                            <select id="language-select">
+                                <option value="cpp">C++</option>
+                                <option value="c">C</option>
+                                <option value="java">Java</option>
+                                <option value="python">Python</option>
+                                <option value="rust">Rust</option>
+                                <option value="javascript">JavaScript</option>
+                                <option value="typescript">TypeScript</option>
+                                <option value="go">Go</option>
+                                <option value="kotlin">Kotlin</option>
+                                <option value="swift">Swift</option>
+                                <option value="csharp">C#</option>
+                                <option value="ruby">Ruby</option>
+                                <option value="php">PHP</option>
+                                <option value="scala">Scala</option>
+                                <option value="haskell">Haskell</option>
+                                <option value="ocaml">OCaml</option>
+                                <option value="fsharp">F#</option>
+                                <option value="dart">Dart</option>
+                                <option value="lua">Lua</option>
+                                <option value="perl">Perl</option>
+                                <option value="r">R</option>
+                                <option value="matlab">MATLAB</option>
+                                <option value="julia">Julia</option>
+                            </select>
+                        </div>
+                    </div>
+                    <pre id="code-panel" class="code-block code-full"></pre>
+                    <div id="variable-panel" class="variable-panel">
+                        <div class="variable-panel-title">Variables</div>
+                        <div id="variable-list" class="variable-list">
+                            <!-- Filled dynamically -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+    
+    <!-- Comparison Mode Modal -->
+    <div id="comparison-modal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <span class="modal-title">Algorithm Comparison</span>
+                <button id="btn-close-comparison" class="modal-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div id="comparison-content" class="comparison-grid"></div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Tutorial Modal -->
+    <div id="tutorial-modal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <span class="modal-title">Tutorial & Help</span>
+                <button id="btn-close-tutorial" class="modal-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div id="tutorial-content" class="tutorial-content"></div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Hidden file input for import -->
+    <input type="file" id="import-file-input" accept=".json" style="display: none;" />
+</div>
+</body>
+</html>
+
