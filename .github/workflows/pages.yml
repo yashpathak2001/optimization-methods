@@ -45,6 +45,13 @@ jobs:
         uses: actions/upload-pages-artifact@v2
         with:
           path: 'docs'
+      
+      - name: List files in docs
+        run: |
+          echo "Files in docs directory:"
+          ls -la docs/
+          echo "Files in docs/static/visualizer:"
+          ls -la docs/static/visualizer/ || echo "Directory not found"
 
   deploy:
     environment:

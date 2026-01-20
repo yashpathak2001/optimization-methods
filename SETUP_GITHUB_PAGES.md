@@ -30,9 +30,10 @@ git push origin main
 1. Go to your repository on GitHub
 2. Click **Settings** → **Pages** (left sidebar)
 3. Under **Source**, select:
-   - **Deploy from a branch**: `main` branch
-   - **Folder**: `/docs`
+   - **GitHub Actions** ⚠️ **IMPORTANT: Select this, NOT "Deploy from a branch"**
 4. Click **Save**
+
+**Note**: If you see "Deploy from a branch" selected, change it to **"GitHub Actions"**. This is crucial - the workflow will handle deployment automatically.
 
 ### Step 3: Wait for Deployment
 
