@@ -21,7 +21,7 @@ This guide explains how to deploy the Optimization Methods Visualizer for studen
 
 3. **Configure settings**:
    ```
-   Build Command: pip install -r requirements.txt
+   Build Command: pip install -r requirements.txt && python manage.py collectstatic --noinput
    Start Command: gunicorn optimization_site.wsgi:application
    ```
 
