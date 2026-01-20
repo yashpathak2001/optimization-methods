@@ -21,18 +21,31 @@ An interactive web-based visualization tool for learning and understanding optim
 - **Zoom Controls**: Zoom in/out on graphs for better visibility
 - **Export/Import**: Save and load graph configurations
 
+## 🌐 Live Demo
+
+**Try it online!** The application is hosted on GitHub Pages:
+👉 [https://yashpathak2001.github.io/optimization-methods/](https://yashpathak2001.github.io/optimization-methods/)
+
+No installation required - just open the link in your browser!
+
 ## 📚 Course Integration
 
 This repository is updated weekly to align with the course schedule. New algorithms and features are added progressively to match the learning curriculum.
 
 ## 🚀 Quick Start
 
-### Prerequisites
+### Option 1: Use Online Version (Recommended)
+
+Simply visit the [live demo](https://yashpathak2001.github.io/optimization-methods/) - no installation needed!
+
+### Option 2: Run Locally
+
+#### Prerequisites
 
 - Python 3.8 or higher
 - pip (Python package manager)
 
-### Installation
+#### Installation
 
 1. **Clone the repository:**
    ```bash
