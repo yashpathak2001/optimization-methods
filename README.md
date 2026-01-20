@@ -23,8 +23,8 @@ An interactive web-based visualization tool for learning and understanding optim
 
 ## 🌐 Live Demo
 
-**Try it online!** The application is hosted on GitHub Pages:
-👉 [https://yashpathak2001.github.io/optimization-methods/](https://yashpathak2001.github.io/optimization-methods/)
+**Try it online!** The application is hosted on Render:
+👉 [https://optimization-methods.onrender.com](https://optimization-methods.onrender.com)
 
 No installation required - just open the link in your browser!
 
@@ -36,7 +36,7 @@ This repository is updated weekly to align with the course schedule. New algorit
 
 ### Option 1: Use Online Version (Recommended)
 
-Simply visit the [live demo](https://yashpathak2001.github.io/optimization-methods/) - no installation needed!
+Simply visit the [live demo]([https://optimization-methods.onrender.com]) - no installation needed!
 
 ### Option 2: Run Locally
 
