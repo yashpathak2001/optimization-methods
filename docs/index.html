@@ -33,6 +33,9 @@
                     <option value="bellman-ford">Bellman-Ford</option>
                     <option value="bellman-ford-fifo">Bellman-Ford (FIFO Queue)</option>
                     <option value="dijkstra">Dijkstra's Algorithm</option>
+                    <option value="prim">Prim's Algorithm</option>
+                    <option value="bfs">Breadth-First Search (BFS)</option>
+                    <option value="dfs">Depth-First Search (DFS)</option>
                 </select>
             </div>
             <div class="field-group">
@@ -54,7 +57,7 @@
     </header>
 
     <main class="app-main">
-        <!-- Left column: Parent subgraph + Info panels -->
+        <!-- Left column: MST (tree) + Info panels -->
         <section class="panel panel-parent">
             <div class="panel-body">
                 <!-- Algorithm Info Panel -->
@@ -79,10 +82,10 @@
                         <div id="graph-stats-content" class="stats-content"></div>
                     </div>
                 </div>
-                <!-- Parent Subgraph Panel -->
+                <!-- MST Panel -->
                 <div id="parent-subgraph-panel" class="info-panel">
                     <div class="info-panel-header">
-                        <span class="info-panel-title">Parent Subgraph</span>
+                        <span id="parent-subgraph-title" class="info-panel-title">Parent Subgraph</span>
                         <div class="info-panel-header-actions">
                             <button id="btn-zoom-in-parent" class="ghost-button tiny" title="Zoom In">+</button>
                             <button id="btn-zoom-out-parent" class="ghost-button tiny" title="Zoom Out">−</button>
@@ -191,6 +194,10 @@
                         <option value="simple">Simple demo graph</option>
                         <option value="neg-cycle">Negative cycle example</option>
                         <option value="grid">Grid-like graph</option>
+                        <option value="tree-unweighted">Tree (unweighted)</option>
+                        <option value="tree-weighted">Tree (weighted)</option>
+                        <option value="complete-unweighted">Complete graph (unweighted)</option>
+                        <option value="complete-weighted">Complete graph (weighted)</option>
                     </select>
                     <button id="btn-zoom-in-graph" class="ghost-button" title="Zoom In">+</button>
                     <button id="btn-zoom-out-graph" class="ghost-button" title="Zoom Out">−</button>

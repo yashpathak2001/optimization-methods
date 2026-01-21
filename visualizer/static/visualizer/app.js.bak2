@@ -87,13 +87,13 @@ window.addEventListener("DOMContentLoaded", () => {
   let isPaused = false;
   let comparisonMode = false;
 
-  // --- Graph state & vis-network setup -----------------------------------
-  const nodeData = new vis.DataSet([]);
-  const edgeData = new vis.DataSet([]);
-
   // --- Graph state manager -----------------------------------------------
   const graphStateManager = createGraphStateManager(nodeData, edgeData);
   const computeGraphFromState = graphStateManager.computeGraphFromState;
+
+  // --- Graph state & vis-network setup -----------------------------------
+  const nodeData = new vis.DataSet([]);
+  const edgeData = new vis.DataSet([]);
 
   const physicsOptions = {
     enabled: true,
@@ -346,81 +346,27 @@ window.addEventListener("DOMContentLoaded", () => {
   }
 
   function addEdgeManual() {
-    const fromLabel = edgeFromInput.value.trim();
-    const toLabel = edgeToInput.value.trim();
-    const weightStr = edgeWeightInput.value.trim();
-    
-    if (!fromLabel || !toLabel) {
-      flashStatus("Enter both 'from' and 'to' node labels.", true);
+    const from = parseInt(edgeFromInput.value, 10);
+    const to = parseInt(edgeToInput.value, 10);
+    const w = parseFloat(edgeWeightInput.value);
+    if (Number.isNaN(from) || Number.isNaN(to) || Number.isNaN(w)) {
+      flashStatus("Enter valid from/to/weight for edge.", true);
       return;
     }
-    
-    // Find nodes by label or ID
-    const nodes = nodeData.get();
-    let fromNode = null;
-    let toNode = null;
-    
-    // Try to find by label first (case-insensitive), then by ID if input is numeric
-    for (const node of nodes) {
-      const nodeLabel = (node.label || idToLabel(node.id)).trim();
-      if (nodeLabel.toLowerCase() === fromLabel.toLowerCase()) {
-        fromNode = node;
-      }
-      if (nodeLabel.toLowerCase() === toLabel.toLowerCase()) {
-        toNode = node;
-      }
-    }
-    
-    // If not found by label, try numeric ID
-    if (!fromNode) {
-      const fromId = parseInt(fromLabel, 10);
-      if (!Number.isNaN(fromId)) {
-        fromNode = nodeData.get(fromId);
-      }
-    }
-    if (!toNode) {
-      const toId = parseInt(toLabel, 10);
-      if (!Number.isNaN(toId)) {
-        toNode = nodeData.get(toId);
-      }
-    }
-    
-    if (!fromNode) {
-      flashStatus(`Node "${fromLabel}" not found.`, true);
+    if (!nodeData.get(from) || !nodeData.get(to)) {
+      flashStatus("Both endpoints must exist as nodes.", true);
       return;
     }
-    if (!toNode) {
-      flashStatus(`Node "${toLabel}" not found.`, true);
-      return;
-    }
-    
-    // Weight is optional - default to 1 if empty, or parse if provided
-    let w = 1;
-    let hasWeight = false;
-    if (weightStr) {
-      w = parseFloat(weightStr);
-      if (Number.isNaN(w)) {
-        flashStatus("Invalid weight value. Using default weight of 1.", false);
-        w = 1;
-      } else {
-        hasWeight = true;
-      }
-    }
-    
-    const from = fromNode.id;
-    const to = toNode.id;
     const directed = chkDirected.checked;
     const id = `${from}-${to}-${Date.now()}`;
-    
     edgeData.add({
       id,
       from,
       to,
       arrows: directed ? "to" : "",
-      label: hasWeight ? String(w) : "",
+      label: String(w),
       weight: w,
     });
-    
     if (!directed && from !== to) {
       const id2 = `${to}-${from}-${Date.now()}-r`;
       edgeData.add({
@@ -428,15 +374,13 @@ window.addEventListener("DOMContentLoaded", () => {
         from: to,
         to: from,
         arrows: "",
-        label: hasWeight ? String(w) : "",
+        label: String(w),
         weight: w,
       });
     }
-    
     edgeFromInput.value = "";
     edgeToInput.value = "";
     edgeWeightInput.value = "";
-    flashStatus(`Edge added: ${fromNode.label || idToLabel(from)} → ${toNode.label || idToLabel(to)}${hasWeight ? ` (weight: ${w})` : ""}`);
   }
 
   function resetGraph() {
@@ -674,22 +618,748 @@ window.addEventListener("DOMContentLoaded", () => {
   // computeGraphFromState is now imported from graph/state.js
 
   // Algorithm functions are now imported from algorithms/
-  // Old implementations removed - see algorithms/ directory
+  // Keeping this comment for reference - actual implementations moved to algorithms/relaxation.js
+  function createRelaxationSteps_OLD(source, variant) {
+    const { nodes, edges } = computeGraphFromState();
+    const dist = new Map();
+    const parent = new Map();
+    for (const n of nodes) {
+      dist.set(n.id, Infinity);
+      parent.set(n.id, null);
+    }
+    dist.set(source, 0);
+
+    const flatEdges = edges.map((e) => ({
+      from: e.from,
+      to: e.to,
+      w: e.weight ?? parseFloat(e.label),
+      id: e.id,
+    }));
+    const totalPasses =
+      variant === "relaxation" ? nodes.length - 1 : nodes.length * 2;
+    const out = [];
+
+    out.push({
+      label: "Initialization",
+      description: `Initialize all distances to ∞ except source ${idToLabel(
+        source
+      )}, which is 0.`,
+      dist: new Map(dist),
+      parent: new Map(parent),
+      highlightEdge: null,
+      highlightNode: source,
+      codeKey: "init",
+    });
+
+    for (let i = 0; i < totalPasses; i++) {
+      for (const e of flatEdges) {
+        const { from, to, w } = e;
+        const old = dist.get(to);
+        const cand = dist.get(from) + w;
+        const willRelax = cand < old;
+
+        const step = {
+          label: `Relax edge (${idToLabel(from)} → ${idToLabel(to)})`,
+          description: willRelax
+            ? `Relaxing edge ${idToLabel(
+                from
+              )}→${idToLabel(to)}: updating d[${idToLabel(
+                to
+              )}] from ${formatDist(old)} to ${formatDist(cand)}.`
+            : `Checking edge ${idToLabel(
+                from
+              )}→${idToLabel(
+                to
+              )}: no update since current distance is better.`,
+          dist: new Map(dist),
+          parent: new Map(parent),
+          highlightEdge: e.id,
+          highlightNode: to,
+          codeKey: "relax",
+          relaxedNode: willRelax ? to : null,
+          u: from,
+          v: to,
+          w: w,
+        };
+
+        if (willRelax) {
+          dist.set(to, cand);
+          parent.set(to, from);
+          step.dist = new Map(dist);
+          step.parent = new Map(parent);
+        }
+        out.push(step);
+      }
+    }
+    return out;
+  }
+
+  function createBellmanFordSteps(source, useFIFO) {
+    const { nodes, edges } = computeGraphFromState();
+    const dist = new Map();
+    const parent = new Map();
+    for (const n of nodes) {
+      dist.set(n.id, Infinity);
+      parent.set(n.id, null);
+    }
+    dist.set(source, 0);
+
+    const flatEdges = edges.map((e) => ({
+      from: e.from,
+      to: e.to,
+      w: e.weight ?? parseFloat(e.label),
+      id: e.id,
+    }));
+
+    const out = [];
+    out.push({
+      label: "Initialization",
+      description:
+        "Initialize distances and parents. Bellman-Ford can handle negative weights.",
+      dist: new Map(dist),
+      parent: new Map(parent),
+      highlightEdge: null,
+      highlightNode: source,
+      codeKey: "bf_init",
+    });
+
+    if (!useFIFO) {
+      const n = nodes.length;
+      for (let i = 1; i <= n - 1; i++) {
+        out.push({
+          label: `Pass ${i}`,
+          description: `Outer loop iteration ${i}/${n - 1}. Relax all edges.`,
+          dist: new Map(dist),
+          parent: new Map(parent),
+          highlightEdge: null,
+          highlightNode: null,
+          codeKey: "bf_outer",
+          iteration: i,
+        });
+        for (const e of flatEdges) {
+          const old = dist.get(e.to);
+          const cand = dist.get(e.from) + e.w;
+          const willRelax = cand < old;
+          const step = {
+            label: `Relax edge (${idToLabel(e.from)} → ${idToLabel(e.to)})`,
+            description: willRelax
+              ? `Relaxing edge ${idToLabel(
+                  e.from
+                )}→${idToLabel(e.to)}: updating d[${idToLabel(
+                  e.to
+                )}] from ${formatDist(old)} to ${formatDist(cand)}.`
+              : `Checking edge ${idToLabel(
+                  e.from
+                )}→${idToLabel(e.to)}: no update.`,
+            dist: new Map(dist),
+            parent: new Map(parent),
+            highlightEdge: e.id,
+            highlightNode: e.to,
+            codeKey: "bf_relax",
+            relaxedNode: willRelax ? e.to : null,
+            u: e.from,
+            v: e.to,
+            w: e.w,
+          };
+          if (willRelax) {
+            dist.set(e.to, cand);
+            parent.set(e.to, e.from);
+            step.dist = new Map(dist);
+            step.parent = new Map(parent);
+          }
+          out.push(step);
+        }
+      }
+      out.push({
+        label: "Negative cycle check",
+        description:
+          "Finally, check once more: if any edge can still be relaxed, there is a negative cycle.",
+        dist: new Map(dist),
+        parent: new Map(parent),
+        highlightEdge: null,
+        highlightNode: null,
+        codeKey: "bf_check",
+      });
+      for (const e of flatEdges) {
+        const old = dist.get(e.to);
+        const cand = dist.get(e.from) + e.w;
+        const relax = cand < old;
+        out.push({
+          label: `Check edge (${idToLabel(e.from)} → ${idToLabel(e.to)})`,
+          description: relax
+            ? `Edge ${idToLabel(
+                e.from
+              )}→${idToLabel(
+                e.to
+              )} can still be relaxed: negative cycle detected.`
+            : `Edge ${idToLabel(
+                e.from
+              )}→${idToLabel(e.to)} cannot be further relaxed.`,
+          dist: new Map(dist),
+          parent: new Map(parent),
+          highlightEdge: e.id,
+          highlightNode: e.to,
+          codeKey: relax ? "bf_neg_cycle" : "bf_check_edge",
+          negCycle: relax,
+          u: e.from,
+          v: e.to,
+          w: e.w,
+        });
+      }
+    } else {
+      // FIFO queue variant
+      const queue = [source];
+      const inQueue = new Set([source]);
+      out.push({
+        label: "Queue init",
+        description: `Initialize queue with source node ${idToLabel(source)}.`,
+        dist: new Map(dist),
+        parent: new Map(parent),
+        highlightEdge: null,
+        highlightNode: source,
+        codeKey: "fifo_init",
+      });
+
+      let relaxCount = 0;
+      const maxRelax = nodes.length * edges.length + 10;
+
+      while (queue.length && relaxCount < maxRelax) {
+        const u = queue.shift();
+        inQueue.delete(u);
+        out.push({
+          label: `Pop ${idToLabel(u)} from queue`,
+          description: `Processing node ${idToLabel(
+            u
+          )} from the front of the queue.`,
+          dist: new Map(dist),
+          parent: new Map(parent),
+          highlightEdge: null,
+          highlightNode: u,
+          codeKey: "fifo_pop",
+          u: u,
+        });
+
+        for (const e of flatEdges.filter((e) => e.from === u)) {
+          const old = dist.get(e.to);
+          const cand = dist.get(e.from) + e.w;
+          const willRelax = cand < old;
+          const step = {
+            label: `Try relax (${idToLabel(e.from)} → ${idToLabel(e.to)})`,
+            description: willRelax
+              ? `Relaxing ${idToLabel(
+                  e.from
+                )}→${idToLabel(
+                  e.to
+                )} and pushing ${idToLabel(
+                  e.to
+                )} to queue (if not there).`
+              : `No relaxation for ${idToLabel(
+                  e.from
+                )}→${idToLabel(e.to)}.`,
+            dist: new Map(dist),
+            parent: new Map(parent),
+            highlightEdge: e.id,
+            highlightNode: e.to,
+            codeKey: "fifo_relax",
+            relaxedNode: willRelax ? e.to : null,
+            queueSnapshot: [...queue],
+            u: e.from,
+            v: e.to,
+            w: e.w,
+          };
+          if (willRelax) {
+            dist.set(e.to, cand);
+            parent.set(e.to, e.from);
+            relaxCount++;
+            if (!inQueue.has(e.to)) {
+              queue.push(e.to);
+              inQueue.add(e.to);
+            }
+            step.dist = new Map(dist);
+            step.parent = new Map(parent);
+            step.queueSnapshot = [...queue];
+          }
+          out.push(step);
+        }
+      }
+      const hasNegCycle = relaxCount >= maxRelax;
+      out.push({
+        label: hasNegCycle ? "Negative cycle detected" : "Done",
+        description: hasNegCycle
+          ? "Too many relaxations detected: negative cycle reachable from source."
+          : "Queue is empty, FIFO Bellman-Ford terminates.",
+        dist: new Map(dist),
+        parent: new Map(parent),
+        highlightEdge: null,
+        highlightNode: null,
+        codeKey: hasNegCycle ? "fifo_neg_cycle" : "fifo_done",
+        negCycle: hasNegCycle,
+      });
+      
+      // Additional check: verify if any edge can still be relaxed
+      if (!hasNegCycle) {
+        out.push({
+          label: "Negative cycle check",
+          description: "Check if any edge can still be relaxed (negative cycle detection).",
+          dist: new Map(dist),
+          parent: new Map(parent),
+          highlightEdge: null,
+          highlightNode: null,
+          codeKey: "fifo_check",
+        });
+        for (const e of flatEdges) {
+          const old = dist.get(e.to);
+          const cand = dist.get(e.from) + e.w;
+          const relax = cand < old;
+          out.push({
+            label: `Check edge (${idToLabel(e.from)} → ${idToLabel(e.to)})`,
+            description: relax
+              ? `Edge ${idToLabel(
+                  e.from
+                )}→${idToLabel(
+                  e.to
+                )} can still be relaxed: negative cycle detected.`
+              : `Edge ${idToLabel(
+                  e.from
+                )}→${idToLabel(e.to)} cannot be further relaxed.`,
+            dist: new Map(dist),
+            parent: new Map(parent),
+            highlightEdge: e.id,
+            highlightNode: e.to,
+            codeKey: relax ? "fifo_neg_cycle" : "fifo_check_edge",
+            negCycle: relax,
+            u: e.from,
+            v: e.to,
+            w: e.w,
+          });
+        }
+      }
+    }
+    return out;
+  }
 
   // formatDist is now imported from utils/helpers.js
 
   // --- New Algorithms: Dijkstra, Floyd-Warshall, A* --------------------
   // Algorithm functions are now imported from algorithms/
+  function createDijkstraSteps_OLD(source) {
+    const { nodes, edges } = computeGraphFromState();
+    const dist = new Map();
+    const parent = new Map();
+    const visited = new Set();
+    
+    for (const n of nodes) {
+      dist.set(n.id, Infinity);
+      parent.set(n.id, null);
+    }
+    dist.set(source, 0);
+    
+    const flatEdges = edges.map((e) => ({
+      from: e.from,
+      to: e.to,
+      w: e.weight ?? parseFloat(e.label),
+      id: e.id,
+    }));
+    
+    // Check for negative edges
+    const hasNegative = flatEdges.some(e => e.w < 0);
+    if (hasNegative) {
+      return [{
+        label: "Error: Negative edges detected",
+        description: "Dijkstra's algorithm requires non-negative edge weights.",
+        dist: new Map(dist),
+        parent: new Map(parent),
+        highlightEdge: null,
+        highlightNode: null,
+        codeKey: "error",
+      }];
+    }
+    
+    const out = [];
+    out.push({
+      label: "Initialization",
+      description: `Initialize all distances to ∞ except source ${idToLabel(source)}, which is 0.`,
+      dist: new Map(dist),
+      parent: new Map(parent),
+      highlightEdge: null,
+      highlightNode: source,
+      codeKey: "dijkstra_init",
+    });
+    
+    // Priority queue simulation (using array for simplicity)
+    const pq = nodes.map(n => ({ id: n.id, dist: dist.get(n.id) }));
+    
+    while (pq.length > 0) {
+      // Extract minimum
+      pq.sort((a, b) => dist.get(a.id) - dist.get(b.id));
+      const u = pq.shift();
+      
+      if (visited.has(u.id)) continue;
+      if (dist.get(u.id) === Infinity) break;
+      
+      visited.add(u.id);
+      
+      out.push({
+        label: `Extract minimum: ${idToLabel(u.id)}`,
+        description: `Selecting node ${idToLabel(u.id)} with distance ${formatDist(dist.get(u.id))}.`,
+        dist: new Map(dist),
+        parent: new Map(parent),
+        highlightEdge: null,
+        highlightNode: u.id,
+        codeKey: "dijkstra_extract",
+        u: u.id,
+      });
+      
+      // Relax neighbors
+      for (const e of flatEdges.filter(e => e.from === u.id && !visited.has(e.to))) {
+        const old = dist.get(e.to);
+        const cand = dist.get(u.id) + e.w;
+        const willRelax = cand < old;
+        
+        const step = {
+          label: `Relax edge (${idToLabel(u.id)} → ${idToLabel(e.to)})`,
+          description: willRelax
+            ? `Relaxing edge ${idToLabel(u.id)}→${idToLabel(e.to)}: updating d[${idToLabel(e.to)}] from ${formatDist(old)} to ${formatDist(cand)}.`
+            : `Checking edge ${idToLabel(u.id)}→${idToLabel(e.to)}: no update.`,
+          dist: new Map(dist),
+          parent: new Map(parent),
+          highlightEdge: e.id,
+          highlightNode: e.to,
+          codeKey: "dijkstra_relax",
+          relaxedNode: willRelax ? e.to : null,
+          u: u.id,
+          v: e.to,
+          w: e.w,
+        };
+        
+        if (willRelax) {
+          dist.set(e.to, cand);
+          parent.set(e.to, u.id);
+          step.dist = new Map(dist);
+          step.parent = new Map(parent);
+        }
+        out.push(step);
+      }
+    }
+    
+    out.push({
+      label: "Done",
+      description: "All reachable nodes processed.",
+      dist: new Map(dist),
+      parent: new Map(parent),
+      highlightEdge: null,
+      highlightNode: null,
+      codeKey: "dijkstra_done",
+    });
+    
+    return out;
+  }
 
+  function createPrimSteps(source) {
+    const { nodes, edges } = computeGraphFromState();
+    const dist = new Map(); // Minimum edge weight to connect to MST
+    const parent = new Map();
+    const inMST = new Set();
+    
+    for (const n of nodes) {
+      dist.set(n.id, Infinity);
+      parent.set(n.id, null);
+    }
+    dist.set(source, 0);
+    
+    const flatEdges = edges.map((e) => ({
+      from: e.from,
+      to: e.to,
+      w: e.weight ?? parseFloat(e.label),
+      id: e.id,
+    }));
+    
+    const out = [];
+    out.push({
+      label: "Initialization",
+      description: `Initialize all edge weights to ∞ except source ${idToLabel(source)}, which is 0. Start building MST from source.`,
+      dist: new Map(dist),
+      parent: new Map(parent),
+      highlightEdge: null,
+      highlightNode: source,
+      codeKey: "prim_init",
+    });
+    
+    // Priority queue simulation (using array for simplicity)
+    const pq = nodes.map(n => ({ id: n.id, dist: dist.get(n.id) }));
+    
+    while (pq.length > 0) {
+      // Extract minimum
+      pq.sort((a, b) => dist.get(a.id) - dist.get(b.id));
+      const u = pq.shift();
+      
+      if (inMST.has(u.id)) continue;
+      if (dist.get(u.id) === Infinity) break;
+      
+      inMST.add(u.id);
+      
+      out.push({
+        label: `Add to MST: ${idToLabel(u.id)}`,
+        description: `Adding node ${idToLabel(u.id)} to MST with minimum edge weight ${formatDist(dist.get(u.id))}.`,
+        dist: new Map(dist),
+        parent: new Map(parent),
+        highlightEdge: null,
+        highlightNode: u.id,
+        codeKey: "prim_extract",
+        u: u.id,
+      });
+      
+      // Update neighbors (find minimum edge weights)
+      for (const e of flatEdges.filter(e => 
+        (e.from === u.id && !inMST.has(e.to)) || 
+        (e.to === u.id && !inMST.has(e.from))
+      )) {
+        const v = e.from === u.id ? e.to : e.from;
+        if (inMST.has(v)) continue;
+        
+        const old = dist.get(v);
+        const cand = e.w;
+        const willUpdate = cand < old;
+        
+        const step = {
+          label: `Check edge (${idToLabel(u.id)} ↔ ${idToLabel(v)})`,
+          description: willUpdate
+            ? `Updating minimum edge weight to ${idToLabel(v)}: ${formatDist(old)} → ${formatDist(cand)}.`
+            : `Edge ${idToLabel(u.id)}↔${idToLabel(v)} weight ${formatDist(cand)} is not better than current ${formatDist(old)}.`,
+          dist: new Map(dist),
+          parent: new Map(parent),
+          highlightEdge: e.id,
+          highlightNode: v,
+          codeKey: "prim_relax",
+          relaxedNode: willUpdate ? v : null,
+          u: u.id,
+          v: v,
+          w: e.w,
+        };
+        
+        if (willUpdate) {
+          dist.set(v, cand);
+          parent.set(v, u.id);
+          step.dist = new Map(dist);
+          step.parent = new Map(parent);
+        }
+        out.push(step);
+      }
+    }
+    
+    out.push({
+      label: "Done",
+      description: "Minimum Spanning Tree constructed.",
+      dist: new Map(dist),
+      parent: new Map(parent),
+      highlightEdge: null,
+      highlightNode: null,
+      codeKey: "prim_done",
+    });
+    
+    return out;
+  }
 
+  function createBFSSteps(source) {
+    const { nodes, adj } = computeGraphFromState();
+    const dist = new Map();
+    const parent = new Map();
+    const visited = new Set();
 
-  // createBFSSteps is now imported from algorithms/bfs.js
-  // Old implementation removed
+    for (const n of nodes) {
+      dist.set(n.id, Infinity);
+      parent.set(n.id, null);
+    }
+    dist.set(source, 0);
 
+    const out = [];
+    out.push({
+      label: "Initialization",
+      description: `Initialize all distances to ∞ except source ${idToLabel(
+        source
+      )}, which is 0. BFS treats all edges as weight 1 (number of hops).`,
+      dist: new Map(dist),
+      parent: new Map(parent),
+      highlightEdge: null,
+      highlightNode: source,
+      codeKey: "bfs_init",
+    });
 
-  // createDFSSteps is now imported from algorithms/dfs.js
-  // Old implementation removed
+    const queue = [source];
+    visited.add(source);
 
+    while (queue.length > 0) {
+      const u = queue.shift();
+      out.push({
+        label: `Dequeue ${idToLabel(u)}`,
+        description: `Remove node ${idToLabel(
+          u
+        )} from the front of the queue and explore its neighbors.`,
+        dist: new Map(dist),
+        parent: new Map(parent),
+        highlightEdge: null,
+        highlightNode: u,
+        codeKey: "bfs_pop",
+        u,
+      });
+
+      const neighbors = adj.get(u) || [];
+      for (const { to: v } of neighbors) {
+        const old = dist.get(v);
+        const cand = dist.get(u) + 1;
+        const willRelax = cand < old;
+        const alreadyVisited = visited.has(v);
+
+        const step = {
+          label: `Explore edge (${idToLabel(u)} → ${idToLabel(v)})`,
+          description: alreadyVisited
+            ? `Neighbor ${idToLabel(
+                v
+              )} already discovered earlier, skip updating.`
+            : willRelax
+            ? `First time reaching ${idToLabel(
+                v
+              )}: set parent[${idToLabel(
+                v
+              )}] = ${idToLabel(u)} and distance = ${
+                dist.get(u) + 1
+              } (number of hops).`
+            : `Checking neighbor ${idToLabel(
+                v
+              )}: no better distance found via ${idToLabel(u)}.`,
+          dist: new Map(dist),
+          parent: new Map(parent),
+          highlightEdge: null,
+          highlightNode: v,
+          codeKey: "bfs_relax",
+          relaxedNode: !alreadyVisited && willRelax ? v : null,
+          u,
+          v,
+        };
+
+        if (!alreadyVisited && willRelax) {
+          dist.set(v, cand);
+          parent.set(v, u);
+          visited.add(v);
+          queue.push(v);
+          step.dist = new Map(dist);
+          step.parent = new Map(parent);
+        }
+        out.push(step);
+      }
+    }
+
+    out.push({
+      label: "Done",
+      description:
+        "BFS is complete. All nodes reachable from the source have their minimum-hop distance and a parent in the BFS tree.",
+      dist: new Map(dist),
+      parent: new Map(parent),
+      highlightEdge: null,
+      highlightNode: null,
+      codeKey: "bfs_done",
+    });
+
+    return out;
+  }
+
+  function createDFSSteps(source) {
+    const { nodes, adj } = computeGraphFromState();
+    const dist = new Map();
+    const parent = new Map();
+    const visited = new Set();
+
+    for (const n of nodes) {
+      dist.set(n.id, Infinity);
+      parent.set(n.id, null);
+    }
+    dist.set(source, 0);
+
+    const out = [];
+    out.push({
+      label: "Initialization",
+      description: `Initialize all nodes as unvisited. Start DFS from source ${idToLabel(
+        source
+      )}.`,
+      dist: new Map(dist),
+      parent: new Map(parent),
+      highlightEdge: null,
+      highlightNode: source,
+      codeKey: "dfs_init",
+    });
+
+    const stack = [source];
+
+    while (stack.length > 0) {
+      const u = stack.pop();
+      if (visited.has(u)) continue;
+      visited.add(u);
+
+      out.push({
+        label: `Visit ${idToLabel(u)}`,
+        description: `Pop node ${idToLabel(
+          u
+        )} from the stack and mark it as visited.`,
+        dist: new Map(dist),
+        parent: new Map(parent),
+        highlightEdge: null,
+        highlightNode: u,
+        codeKey: "dfs_visit",
+        u,
+      });
+
+      const neighbors = (adj.get(u) || []).slice().reverse();
+      for (const { to: v } of neighbors) {
+        if (visited.has(v)) continue;
+        const old = dist.get(v);
+        const cand = dist.get(u) + 1;
+        const willRelax = cand < old;
+
+        const step = {
+          label: `Explore edge (${idToLabel(u)} → ${idToLabel(v)})`,
+          description: willRelax
+            ? `First time visiting ${idToLabel(
+                v
+              )} from ${idToLabel(
+                u
+              )}. Set parent and push ${idToLabel(v)} on the stack.`
+            : `Edge ${idToLabel(
+                u
+              )}→${idToLabel(v)} leads to an already discovered node.`,
+          dist: new Map(dist),
+          parent: new Map(parent),
+          highlightEdge: null,
+          highlightNode: v,
+          codeKey: "dfs_relax",
+          relaxedNode: willRelax ? v : null,
+          u,
+          v,
+        };
+
+        if (willRelax) {
+          dist.set(v, cand);
+          parent.set(v, u);
+          stack.push(v);
+          step.dist = new Map(dist);
+          step.parent = new Map(parent);
+        }
+        out.push(step);
+      }
+    }
+
+    out.push({
+      label: "Done",
+      description:
+        "DFS is complete. All nodes reachable from the source belong to the DFS tree defined by the parent pointers.",
+      dist: new Map(dist),
+      parent: new Map(parent),
+      highlightEdge: null,
+      highlightNode: null,
+      codeKey: "dfs_done",
+    });
+
+    return out;
+  }
 
   function createFloydWarshallSteps() {
     const { nodes, edges } = computeGraphFromState();

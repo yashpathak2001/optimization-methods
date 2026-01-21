@@ -1,6 +1,21 @@
 // Optimization Methods Visualizer
 // Frontend logic: graph builder + algorithms + stepper + code highlighting
 
+// --- Imports -------------------------------------------------------------
+import { idToLabel, nodeBaseColor, formatDist, escapeHtml } from './utils/helpers.js';
+import { createGraphStateManager } from './graph/state.js';
+import {
+  createRelaxationSteps,
+  createBellmanFordSteps,
+  createDijkstraSteps,
+  createPrimSteps,
+  createBFSSteps,
+  createDFSSteps
+} from './algorithms/index.js';
+import { PSEUDO_TEMPLATES } from './pseudo-code/pseudo.js';
+import { CODE_TEMPLATES } from './code-templates/templates.js';
+import { ALGORITHM_INFO } from './algorithm-info/info.js';
+
 // --- DOM helpers ---------------------------------------------------------
 const $ = (id) => document.getElementById(id);
 
@@ -72,34 +87,13 @@ window.addEventListener("DOMContentLoaded", () => {
   let isPaused = false;
   let comparisonMode = false;
 
-  // --- Helpers for node labels/colors ------------------------------------
-  function idToLabel(id) {
-    const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-    let n = id;
-    let result = "";
-    do {
-      result = alphabet[n % 26] + result;
-      n = Math.floor(n / 26) - 1;
-    } while (n >= 0);
-    return result;
-  }
-
-  function nodeBaseColor(id) {
-    const palette = [
-      "#38bdf8",
-      "#a855f7",
-      "#f97316",
-      "#22c55e",
-      "#eab308",
-      "#6366f1",
-      "#ec4899",
-    ];
-    return palette[id % palette.length];
-  }
-
   // --- Graph state & vis-network setup -----------------------------------
   const nodeData = new vis.DataSet([]);
   const edgeData = new vis.DataSet([]);
+
+  // --- Graph state manager -----------------------------------------------
+  const graphStateManager = createGraphStateManager(nodeData, edgeData);
+  const computeGraphFromState = graphStateManager.computeGraphFromState;
 
   const physicsOptions = {
     enabled: true,
@@ -352,27 +346,81 @@ window.addEventListener("DOMContentLoaded", () => {
   }
 
   function addEdgeManual() {
-    const from = parseInt(edgeFromInput.value, 10);
-    const to = parseInt(edgeToInput.value, 10);
-    const w = parseFloat(edgeWeightInput.value);
-    if (Number.isNaN(from) || Number.isNaN(to) || Number.isNaN(w)) {
-      flashStatus("Enter valid from/to/weight for edge.", true);
+    const fromLabel = edgeFromInput.value.trim();
+    const toLabel = edgeToInput.value.trim();
+    const weightStr = edgeWeightInput.value.trim();
+    
+    if (!fromLabel || !toLabel) {
+      flashStatus("Enter both 'from' and 'to' node labels.", true);
       return;
     }
-    if (!nodeData.get(from) || !nodeData.get(to)) {
-      flashStatus("Both endpoints must exist as nodes.", true);
+    
+    // Find nodes by label or ID
+    const nodes = nodeData.get();
+    let fromNode = null;
+    let toNode = null;
+    
+    // Try to find by label first (case-insensitive), then by ID if input is numeric
+    for (const node of nodes) {
+      const nodeLabel = (node.label || idToLabel(node.id)).trim();
+      if (nodeLabel.toLowerCase() === fromLabel.toLowerCase()) {
+        fromNode = node;
+      }
+      if (nodeLabel.toLowerCase() === toLabel.toLowerCase()) {
+        toNode = node;
+      }
+    }
+    
+    // If not found by label, try numeric ID
+    if (!fromNode) {
+      const fromId = parseInt(fromLabel, 10);
+      if (!Number.isNaN(fromId)) {
+        fromNode = nodeData.get(fromId);
+      }
+    }
+    if (!toNode) {
+      const toId = parseInt(toLabel, 10);
+      if (!Number.isNaN(toId)) {
+        toNode = nodeData.get(toId);
+      }
+    }
+    
+    if (!fromNode) {
+      flashStatus(`Node "${fromLabel}" not found.`, true);
       return;
     }
+    if (!toNode) {
+      flashStatus(`Node "${toLabel}" not found.`, true);
+      return;
+    }
+    
+    // Weight is optional - default to 1 if empty, or parse if provided
+    let w = 1;
+    let hasWeight = false;
+    if (weightStr) {
+      w = parseFloat(weightStr);
+      if (Number.isNaN(w)) {
+        flashStatus("Invalid weight value. Using default weight of 1.", false);
+        w = 1;
+      } else {
+        hasWeight = true;
+      }
+    }
+    
+    const from = fromNode.id;
+    const to = toNode.id;
     const directed = chkDirected.checked;
     const id = `${from}-${to}-${Date.now()}`;
+    
     edgeData.add({
       id,
       from,
       to,
       arrows: directed ? "to" : "",
-      label: String(w),
+      label: hasWeight ? String(w) : "",
       weight: w,
     });
+    
     if (!directed && from !== to) {
       const id2 = `${to}-${from}-${Date.now()}-r`;
       edgeData.add({
@@ -380,13 +428,15 @@ window.addEventListener("DOMContentLoaded", () => {
         from: to,
         to: from,
         arrows: "",
-        label: String(w),
+        label: hasWeight ? String(w) : "",
         weight: w,
       });
     }
+    
     edgeFromInput.value = "";
     edgeToInput.value = "";
     edgeWeightInput.value = "";
+    flashStatus(`Edge added: ${fromNode.label || idToLabel(from)} → ${toNode.label || idToLabel(to)}${hasWeight ? ` (weight: ${w})` : ""}`);
   }
 
   function resetGraph() {
@@ -499,6 +549,87 @@ window.addEventListener("DOMContentLoaded", () => {
       }
       refreshStartNodeOptions();
       flashStatus("Loaded grid-like graph.");
+    } else if (kind === "tree-unweighted") {
+      // A simple rooted tree with unit weights
+      for (let i = 0; i < 7; i++) addNode();
+      const edges = [
+        [0, 1],
+        [0, 2],
+        [1, 3],
+        [1, 4],
+        [2, 5],
+        [2, 6],
+      ];
+      for (const [f, t] of edges) {
+        edgeData.add({
+          id: `${f}-${t}`,
+          from: f,
+          to: t,
+          arrows: "to",
+          label: "1",
+          weight: 1,
+        });
+      }
+      flashStatus("Loaded unweighted tree.");
+    } else if (kind === "tree-weighted") {
+      // Same tree with varying positive weights
+      for (let i = 0; i < 7; i++) addNode();
+      const edges = [
+        [0, 1, 2],
+        [0, 2, 5],
+        [1, 3, 1],
+        [1, 4, 3],
+        [2, 5, 4],
+        [2, 6, 2],
+      ];
+      for (const [f, t, w] of edges) {
+        edgeData.add({
+          id: `${f}-${t}`,
+          from: f,
+          to: t,
+          arrows: "to",
+          label: String(w),
+          weight: w,
+        });
+      }
+      flashStatus("Loaded weighted tree.");
+    } else if (kind === "complete-unweighted") {
+      // Complete graph on 5 nodes with unit weights
+      const n = 5;
+      for (let i = 0; i < n; i++) addNode();
+      for (let i = 0; i < n; i++) {
+        for (let j = 0; j < n; j++) {
+          if (i === j) continue;
+          edgeData.add({
+            id: `${i}-${j}`,
+            from: i,
+            to: j,
+            arrows: "to",
+            label: "1",
+            weight: 1,
+          });
+        }
+      }
+      flashStatus("Loaded unweighted complete graph (5 nodes).");
+    } else if (kind === "complete-weighted") {
+      // Complete graph on 5 nodes with random positive weights
+      const n = 5;
+      for (let i = 0; i < n; i++) addNode();
+      for (let i = 0; i < n; i++) {
+        for (let j = 0; j < n; j++) {
+          if (i === j) continue;
+          const w = Math.floor(Math.random() * 9) + 1; // 1..9
+          edgeData.add({
+            id: `${i}-${j}`,
+            from: i,
+            to: j,
+            arrows: "to",
+            label: String(w),
+            weight: w,
+          });
+        }
+      }
+      flashStatus("Loaded weighted complete graph (5 nodes).");
     }
     refreshStartNodeOptions();
   }
@@ -540,455 +671,25 @@ window.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-  function computeGraphFromState() {
-    const nodes = nodeData.get();
-    const edges = edgeData.get();
-    const adj = new Map();
-    for (const n of nodes) {
-      adj.set(n.id, []);
-    }
-    for (const e of edges) {
-      adj.get(e.from).push({ to: e.to, w: e.weight ?? parseFloat(e.label) });
-    }
-    return { nodes, edges, adj };
-  }
+  // computeGraphFromState is now imported from graph/state.js
 
-  function createRelaxationSteps(source, variant) {
-    const { nodes, edges } = computeGraphFromState();
-    const dist = new Map();
-    const parent = new Map();
-    for (const n of nodes) {
-      dist.set(n.id, Infinity);
-      parent.set(n.id, null);
-    }
-    dist.set(source, 0);
+  // Algorithm functions are now imported from algorithms/
+  // Old implementations removed - see algorithms/ directory
 
-    const flatEdges = edges.map((e) => ({
-      from: e.from,
-      to: e.to,
-      w: e.weight ?? parseFloat(e.label),
-      id: e.id,
-    }));
-    const totalPasses =
-      variant === "relaxation" ? nodes.length - 1 : nodes.length * 2;
-    const out = [];
-
-    out.push({
-      label: "Initialization",
-      description: `Initialize all distances to ∞ except source ${idToLabel(
-        source
-      )}, which is 0.`,
-      dist: new Map(dist),
-      parent: new Map(parent),
-      highlightEdge: null,
-      highlightNode: source,
-      codeKey: "init",
-    });
-
-    for (let i = 0; i < totalPasses; i++) {
-      for (const e of flatEdges) {
-        const { from, to, w } = e;
-        const old = dist.get(to);
-        const cand = dist.get(from) + w;
-        const willRelax = cand < old;
-
-        const step = {
-          label: `Relax edge (${idToLabel(from)} → ${idToLabel(to)})`,
-          description: willRelax
-            ? `Relaxing edge ${idToLabel(
-                from
-              )}→${idToLabel(to)}: updating d[${idToLabel(
-                to
-              )}] from ${formatDist(old)} to ${formatDist(cand)}.`
-            : `Checking edge ${idToLabel(
-                from
-              )}→${idToLabel(
-                to
-              )}: no update since current distance is better.`,
-          dist: new Map(dist),
-          parent: new Map(parent),
-          highlightEdge: e.id,
-          highlightNode: to,
-          codeKey: "relax",
-          relaxedNode: willRelax ? to : null,
-          u: from,
-          v: to,
-          w: w,
-        };
-
-        if (willRelax) {
-          dist.set(to, cand);
-          parent.set(to, from);
-          step.dist = new Map(dist);
-          step.parent = new Map(parent);
-        }
-        out.push(step);
-      }
-    }
-    return out;
-  }
-
-  function createBellmanFordSteps(source, useFIFO) {
-    const { nodes, edges } = computeGraphFromState();
-    const dist = new Map();
-    const parent = new Map();
-    for (const n of nodes) {
-      dist.set(n.id, Infinity);
-      parent.set(n.id, null);
-    }
-    dist.set(source, 0);
-
-    const flatEdges = edges.map((e) => ({
-      from: e.from,
-      to: e.to,
-      w: e.weight ?? parseFloat(e.label),
-      id: e.id,
-    }));
-
-    const out = [];
-    out.push({
-      label: "Initialization",
-      description:
-        "Initialize distances and parents. Bellman-Ford can handle negative weights.",
-      dist: new Map(dist),
-      parent: new Map(parent),
-      highlightEdge: null,
-      highlightNode: source,
-      codeKey: "bf_init",
-    });
-
-    if (!useFIFO) {
-      const n = nodes.length;
-      for (let i = 1; i <= n - 1; i++) {
-        out.push({
-          label: `Pass ${i}`,
-          description: `Outer loop iteration ${i}/${n - 1}. Relax all edges.`,
-          dist: new Map(dist),
-          parent: new Map(parent),
-          highlightEdge: null,
-          highlightNode: null,
-          codeKey: "bf_outer",
-          iteration: i,
-        });
-        for (const e of flatEdges) {
-          const old = dist.get(e.to);
-          const cand = dist.get(e.from) + e.w;
-          const willRelax = cand < old;
-          const step = {
-            label: `Relax edge (${idToLabel(e.from)} → ${idToLabel(e.to)})`,
-            description: willRelax
-              ? `Relaxing edge ${idToLabel(
-                  e.from
-                )}→${idToLabel(e.to)}: updating d[${idToLabel(
-                  e.to
-                )}] from ${formatDist(old)} to ${formatDist(cand)}.`
-              : `Checking edge ${idToLabel(
-                  e.from
-                )}→${idToLabel(e.to)}: no update.`,
-            dist: new Map(dist),
-            parent: new Map(parent),
-            highlightEdge: e.id,
-            highlightNode: e.to,
-            codeKey: "bf_relax",
-            relaxedNode: willRelax ? e.to : null,
-            u: e.from,
-            v: e.to,
-            w: e.w,
-          };
-          if (willRelax) {
-            dist.set(e.to, cand);
-            parent.set(e.to, e.from);
-            step.dist = new Map(dist);
-            step.parent = new Map(parent);
-          }
-          out.push(step);
-        }
-      }
-      out.push({
-        label: "Negative cycle check",
-        description:
-          "Finally, check once more: if any edge can still be relaxed, there is a negative cycle.",
-        dist: new Map(dist),
-        parent: new Map(parent),
-        highlightEdge: null,
-        highlightNode: null,
-        codeKey: "bf_check",
-      });
-      for (const e of flatEdges) {
-        const old = dist.get(e.to);
-        const cand = dist.get(e.from) + e.w;
-        const relax = cand < old;
-        out.push({
-          label: `Check edge (${idToLabel(e.from)} → ${idToLabel(e.to)})`,
-          description: relax
-            ? `Edge ${idToLabel(
-                e.from
-              )}→${idToLabel(
-                e.to
-              )} can still be relaxed: negative cycle detected.`
-            : `Edge ${idToLabel(
-                e.from
-              )}→${idToLabel(e.to)} cannot be further relaxed.`,
-          dist: new Map(dist),
-          parent: new Map(parent),
-          highlightEdge: e.id,
-          highlightNode: e.to,
-          codeKey: relax ? "bf_neg_cycle" : "bf_check_edge",
-          negCycle: relax,
-          u: e.from,
-          v: e.to,
-          w: e.w,
-        });
-      }
-    } else {
-      // FIFO queue variant
-      const queue = [source];
-      const inQueue = new Set([source]);
-      out.push({
-        label: "Queue init",
-        description: `Initialize queue with source node ${idToLabel(source)}.`,
-        dist: new Map(dist),
-        parent: new Map(parent),
-        highlightEdge: null,
-        highlightNode: source,
-        codeKey: "fifo_init",
-      });
-
-      let relaxCount = 0;
-      const maxRelax = nodes.length * edges.length + 10;
-
-      while (queue.length && relaxCount < maxRelax) {
-        const u = queue.shift();
-        inQueue.delete(u);
-        out.push({
-          label: `Pop ${idToLabel(u)} from queue`,
-          description: `Processing node ${idToLabel(
-            u
-          )} from the front of the queue.`,
-          dist: new Map(dist),
-          parent: new Map(parent),
-          highlightEdge: null,
-          highlightNode: u,
-          codeKey: "fifo_pop",
-          u: u,
-        });
-
-        for (const e of flatEdges.filter((e) => e.from === u)) {
-          const old = dist.get(e.to);
-          const cand = dist.get(e.from) + e.w;
-          const willRelax = cand < old;
-          const step = {
-            label: `Try relax (${idToLabel(e.from)} → ${idToLabel(e.to)})`,
-            description: willRelax
-              ? `Relaxing ${idToLabel(
-                  e.from
-                )}→${idToLabel(
-                  e.to
-                )} and pushing ${idToLabel(
-                  e.to
-                )} to queue (if not there).`
-              : `No relaxation for ${idToLabel(
-                  e.from
-                )}→${idToLabel(e.to)}.`,
-            dist: new Map(dist),
-            parent: new Map(parent),
-            highlightEdge: e.id,
-            highlightNode: e.to,
-            codeKey: "fifo_relax",
-            relaxedNode: willRelax ? e.to : null,
-            queueSnapshot: [...queue],
-            u: e.from,
-            v: e.to,
-            w: e.w,
-          };
-          if (willRelax) {
-            dist.set(e.to, cand);
-            parent.set(e.to, e.from);
-            relaxCount++;
-            if (!inQueue.has(e.to)) {
-              queue.push(e.to);
-              inQueue.add(e.to);
-            }
-            step.dist = new Map(dist);
-            step.parent = new Map(parent);
-            step.queueSnapshot = [...queue];
-          }
-          out.push(step);
-        }
-      }
-      const hasNegCycle = relaxCount >= maxRelax;
-      out.push({
-        label: hasNegCycle ? "Negative cycle detected" : "Done",
-        description: hasNegCycle
-          ? "Too many relaxations detected: negative cycle reachable from source."
-          : "Queue is empty, FIFO Bellman-Ford terminates.",
-        dist: new Map(dist),
-        parent: new Map(parent),
-        highlightEdge: null,
-        highlightNode: null,
-        codeKey: hasNegCycle ? "fifo_neg_cycle" : "fifo_done",
-        negCycle: hasNegCycle,
-      });
-      
-      // Additional check: verify if any edge can still be relaxed
-      if (!hasNegCycle) {
-        out.push({
-          label: "Negative cycle check",
-          description: "Check if any edge can still be relaxed (negative cycle detection).",
-          dist: new Map(dist),
-          parent: new Map(parent),
-          highlightEdge: null,
-          highlightNode: null,
-          codeKey: "fifo_check",
-        });
-        for (const e of flatEdges) {
-          const old = dist.get(e.to);
-          const cand = dist.get(e.from) + e.w;
-          const relax = cand < old;
-          out.push({
-            label: `Check edge (${idToLabel(e.from)} → ${idToLabel(e.to)})`,
-            description: relax
-              ? `Edge ${idToLabel(
-                  e.from
-                )}→${idToLabel(
-                  e.to
-                )} can still be relaxed: negative cycle detected.`
-              : `Edge ${idToLabel(
-                  e.from
-                )}→${idToLabel(e.to)} cannot be further relaxed.`,
-            dist: new Map(dist),
-            parent: new Map(parent),
-            highlightEdge: e.id,
-            highlightNode: e.to,
-            codeKey: relax ? "fifo_neg_cycle" : "fifo_check_edge",
-            negCycle: relax,
-            u: e.from,
-            v: e.to,
-            w: e.w,
-          });
-        }
-      }
-    }
-    return out;
-  }
-
-  function formatDist(d) {
-    return d === Infinity ? "∞" : d.toFixed(1).replace(/\.0$/, "");
-  }
+  // formatDist is now imported from utils/helpers.js
 
   // --- New Algorithms: Dijkstra, Floyd-Warshall, A* --------------------
-  function createDijkstraSteps(source) {
-    const { nodes, edges } = computeGraphFromState();
-    const dist = new Map();
-    const parent = new Map();
-    const visited = new Set();
-    
-    for (const n of nodes) {
-      dist.set(n.id, Infinity);
-      parent.set(n.id, null);
-    }
-    dist.set(source, 0);
-    
-    const flatEdges = edges.map((e) => ({
-      from: e.from,
-      to: e.to,
-      w: e.weight ?? parseFloat(e.label),
-      id: e.id,
-    }));
-    
-    // Check for negative edges
-    const hasNegative = flatEdges.some(e => e.w < 0);
-    if (hasNegative) {
-      return [{
-        label: "Error: Negative edges detected",
-        description: "Dijkstra's algorithm requires non-negative edge weights.",
-        dist: new Map(dist),
-        parent: new Map(parent),
-        highlightEdge: null,
-        highlightNode: null,
-        codeKey: "error",
-      }];
-    }
-    
-    const out = [];
-    out.push({
-      label: "Initialization",
-      description: `Initialize all distances to ∞ except source ${idToLabel(source)}, which is 0.`,
-      dist: new Map(dist),
-      parent: new Map(parent),
-      highlightEdge: null,
-      highlightNode: source,
-      codeKey: "dijkstra_init",
-    });
-    
-    // Priority queue simulation (using array for simplicity)
-    const pq = nodes.map(n => ({ id: n.id, dist: dist.get(n.id) }));
-    
-    while (pq.length > 0) {
-      // Extract minimum
-      pq.sort((a, b) => dist.get(a.id) - dist.get(b.id));
-      const u = pq.shift();
-      
-      if (visited.has(u.id)) continue;
-      if (dist.get(u.id) === Infinity) break;
-      
-      visited.add(u.id);
-      
-      out.push({
-        label: `Extract minimum: ${idToLabel(u.id)}`,
-        description: `Selecting node ${idToLabel(u.id)} with distance ${formatDist(dist.get(u.id))}.`,
-        dist: new Map(dist),
-        parent: new Map(parent),
-        highlightEdge: null,
-        highlightNode: u.id,
-        codeKey: "dijkstra_extract",
-        u: u.id,
-      });
-      
-      // Relax neighbors
-      for (const e of flatEdges.filter(e => e.from === u.id && !visited.has(e.to))) {
-        const old = dist.get(e.to);
-        const cand = dist.get(u.id) + e.w;
-        const willRelax = cand < old;
-        
-        const step = {
-          label: `Relax edge (${idToLabel(u.id)} → ${idToLabel(e.to)})`,
-          description: willRelax
-            ? `Relaxing edge ${idToLabel(u.id)}→${idToLabel(e.to)}: updating d[${idToLabel(e.to)}] from ${formatDist(old)} to ${formatDist(cand)}.`
-            : `Checking edge ${idToLabel(u.id)}→${idToLabel(e.to)}: no update.`,
-          dist: new Map(dist),
-          parent: new Map(parent),
-          highlightEdge: e.id,
-          highlightNode: e.to,
-          codeKey: "dijkstra_relax",
-          relaxedNode: willRelax ? e.to : null,
-          u: u.id,
-          v: e.to,
-          w: e.w,
-        };
-        
-        if (willRelax) {
-          dist.set(e.to, cand);
-          parent.set(e.to, u.id);
-          step.dist = new Map(dist);
-          step.parent = new Map(parent);
-        }
-        out.push(step);
-      }
-    }
-    
-    out.push({
-      label: "Done",
-      description: "All reachable nodes processed.",
-      dist: new Map(dist),
-      parent: new Map(parent),
-      highlightEdge: null,
-      highlightNode: null,
-      codeKey: "dijkstra_done",
-    });
-    
-    return out;
-  }
+  // Algorithm functions are now imported from algorithms/
+
+
+
+  // createBFSSteps is now imported from algorithms/bfs.js
+  // Old implementation removed
+
+
+  // createDFSSteps is now imported from algorithms/dfs.js
+  // Old implementation removed
+
 
   function createFloydWarshallSteps() {
     const { nodes, edges } = computeGraphFromState();
@@ -1256,7 +957,8 @@ window.addEventListener("DOMContentLoaded", () => {
   }
 
   // --- Code templates & highlighting -------------------------------------
-  const PSEUDO_TEMPLATES = {
+  // PSEUDO_TEMPLATES is now imported from pseudo-code/pseudo.js
+  const PSEUDO_TEMPLATES_OLD = {
     relaxation: [
       { key: "init", text: "for each vertex v: d[v] = ∞, parent[v] = NIL" },
       { key: "init", text: "d[s] = 0" },
@@ -1354,9 +1056,62 @@ window.addEventListener("DOMContentLoaded", () => {
         text: "          insert(PQ, (d[v], v))",
       },
     ],
+    prim: [
+      { key: "prim_init", text: "for each vertex v: key[v] = ∞, parent[v] = NIL" },
+      { key: "prim_init", text: "key[s] = 0  // Start from source s" },
+      { key: "prim_init", text: "initialize priority queue PQ with all vertices" },
+      { key: "prim_extract", text: "while PQ not empty:" },
+      { key: "prim_extract", text: "  u = extract_min(PQ)  // Minimum key vertex" },
+      { key: "prim_extract", text: "  add u to MST" },
+      { key: "prim_relax", text: "  for each neighbor v of u:" },
+      { key: "prim_relax", text: "      if v in PQ and weight(u,v) < key[v]:" },
+      { key: "prim_relax", text: "          key[v] = weight(u,v); parent[v] = u" },
+      { key: "prim_relax", text: "          update PQ with new key[v]" },
+      { key: "prim_done", text: "// MST constructed" },
+    ],
+    bfs: [
+      { key: "bfs_init", text: "for each vertex v: d[v] = ∞, parent[v] = NIL" },
+      { key: "bfs_init", text: "d[s] = 0" },
+      { key: "bfs_init", text: "initialize FIFO queue Q with only s" },
+      { key: "bfs_pop", text: "while Q not empty:" },
+      { key: "bfs_pop", text: "  u = pop_front(Q)" },
+      {
+        key: "bfs_relax",
+        text: "  for each neighbor v of u:",
+      },
+      {
+        key: "bfs_relax",
+        text: "      if v not yet discovered:",
+      },
+      {
+        key: "bfs_relax",
+        text: "          d[v] = d[u] + 1; parent[v] = u; push_back(Q, v)",
+      },
+    ],
+    dfs: [
+      {
+        key: "dfs_init",
+        text: "for each vertex v: visited[v] = false, parent[v] = NIL",
+      },
+      { key: "dfs_init", text: "DFS(u):" },
+      { key: "dfs_visit", text: "  visited[u] = true" },
+      {
+        key: "dfs_relax",
+        text: "  for each neighbor v of u:",
+      },
+      {
+        key: "dfs_relax",
+        text: "      if not visited[v]:",
+      },
+      {
+        key: "dfs_relax",
+        text: "          parent[v] = u; DFS(v)",
+      },
+    ],
   };
 
-  const CODE_TEMPLATES = {
+  // CODE_TEMPLATES is now imported from code-templates/templates.js
+  const CODE_TEMPLATES_OLD = {
     cpp: {
       relaxation: [
         { key: "init", text: "vector<double> d(n, INF); vector<int> parent(n, -1);" },
@@ -1430,6 +1185,49 @@ window.addEventListener("DOMContentLoaded", () => {
         { key: "dijkstra_extract", text: "}" },
         { key: "dijkstra_done", text: "// All reachable nodes processed" },
       ],
+      prim: [
+        { key: "prim_init", text: "#include <queue>" },
+        { key: "prim_init", text: "vector<double> key(n, INF); vector<int> parent(n, -1); vector<bool> inMST(n, false);" },
+        { key: "prim_init", text: "key[s] = 0;" },
+        { key: "prim_init", text: "priority_queue<pair<double, int>, vector<pair<double, int>>, greater<>> pq; pq.push({0, s});" },
+        { key: "prim_extract", text: "while (!pq.empty()) {" },
+        { key: "prim_extract", text: "  auto [key_u, u] = pq.top(); pq.pop();" },
+        { key: "prim_extract", text: "  if (inMST[u]) continue;" },
+        { key: "prim_extract", text: "  inMST[u] = true;" },
+        { key: "prim_relax", text: "  for (auto &[v, w] : adj[u]) {" },
+        { key: "prim_relax", text: "      if (!inMST[v] && w < key[v]) {" },
+        { key: "prim_relax", text: "          key[v] = w; parent[v] = u;" },
+        { key: "prim_relax", text: "          pq.push({key[v], v});" },
+        { key: "prim_relax", text: "      }" },
+        { key: "prim_relax", text: "  }" },
+        { key: "prim_extract", text: "}" },
+        { key: "prim_done", text: "// MST constructed" },
+      ],
+      bfs: [
+        { key: "bfs_init", text: "#include <queue>" },
+        { key: "bfs_init", text: "vector<int> d(n, INF); vector<int> parent(n, -1); vector<bool> visited(n, false);" },
+        { key: "bfs_init", text: "d[s] = 0; visited[s] = true;" },
+        { key: "bfs_init", text: "queue<int> q; q.push(s);" },
+        { key: "bfs_pop", text: "while (!q.empty()) {" },
+        { key: "bfs_pop", text: "  int u = q.front(); q.pop();" },
+        { key: "bfs_relax", text: "  for (int v : adj[u]) {" },
+        { key: "bfs_relax", text: "      if (!visited[v]) {" },
+        { key: "bfs_relax", text: "          visited[v] = true; d[v] = d[u] + 1; parent[v] = u; q.push(v);" },
+        { key: "bfs_relax", text: "      }" },
+        { key: "bfs_relax", text: "  }" },
+        { key: "bfs_pop", text: "}" },
+      ],
+      dfs: [
+        { key: "dfs_init", text: "vector<bool> visited(n, false); vector<int> parent(n, -1);" },
+        { key: "dfs_init", text: "void dfs(int u) {" },
+        { key: "dfs_visit", text: "  visited[u] = true;" },
+        { key: "dfs_relax", text: "  for (int v : adj[u]) {" },
+        { key: "dfs_relax", text: "      if (!visited[v]) {" },
+        { key: "dfs_relax", text: "          parent[v] = u; dfs(v);" },
+        { key: "dfs_relax", text: "      }" },
+        { key: "dfs_relax", text: "  }" },
+        { key: "dfs_visit", text: "}" },
+      ],
     },
     c: {
       relaxation: [
@@ -1498,6 +1296,52 @@ window.addEventListener("DOMContentLoaded", () => {
         { key: "dijkstra_relax", text: "      }" },
         { key: "dijkstra_relax", text: "  }" },
         { key: "dijkstra_extract", text: "}" },
+      ],
+      prim: [
+        { key: "prim_init", text: "// Note: C doesn't have built-in priority queue" },
+        { key: "prim_init", text: "// Use array-based approach or implement min-heap" },
+        { key: "prim_init", text: "double key[n]; int parent[n]; bool inMST[n];" },
+        { key: "prim_init", text: "for (int i = 0; i < n; i++) { key[i] = INF; parent[i] = -1; inMST[i] = false; }" },
+        { key: "prim_init", text: "key[s] = 0;" },
+        { key: "prim_extract", text: "for (int count = 0; count < n; count++) {" },
+        { key: "prim_extract", text: "  int u = -1; double min_key = INF;" },
+        { key: "prim_extract", text: "  for (int i = 0; i < n; i++)" },
+        { key: "prim_extract", text: "      if (!inMST[i] && key[i] < min_key) { u = i; min_key = key[i]; }" },
+        { key: "prim_extract", text: "  if (u == -1) break; inMST[u] = true;" },
+        { key: "prim_relax", text: "  for (each edge (u, v, w) in adj[u]) {" },
+        { key: "prim_relax", text: "      if (!inMST[v] && w < key[v]) {" },
+        { key: "prim_relax", text: "          key[v] = w; parent[v] = u;" },
+        { key: "prim_relax", text: "      }" },
+        { key: "prim_relax", text: "  }" },
+        { key: "prim_extract", text: "}" },
+        { key: "prim_done", text: "// MST constructed" },
+      ],
+      bfs: [
+        { key: "bfs_init", text: "// Note: C doesn't have built-in queue" },
+        { key: "bfs_init", text: "// Use array-based queue or implement queue structure" },
+        { key: "bfs_init", text: "int d[n], parent[n]; bool visited[n];" },
+        { key: "bfs_init", text: "for (int i = 0; i < n; i++) { d[i] = INF; parent[i] = -1; visited[i] = false; }" },
+        { key: "bfs_init", text: "d[s] = 0; visited[s] = true; int q[n], front = 0, rear = 0; q[rear++] = s;" },
+        { key: "bfs_pop", text: "while (front < rear) {" },
+        { key: "bfs_pop", text: "  int u = q[front++];" },
+        { key: "bfs_relax", text: "  for (each neighbor v of u) {" },
+        { key: "bfs_relax", text: "      if (!visited[v]) {" },
+        { key: "bfs_relax", text: "          visited[v] = true; d[v] = d[u] + 1; parent[v] = u; q[rear++] = v;" },
+        { key: "bfs_relax", text: "      }" },
+        { key: "bfs_relax", text: "  }" },
+        { key: "bfs_pop", text: "}" },
+      ],
+      dfs: [
+        { key: "dfs_init", text: "bool visited[n]; int parent[n];" },
+        { key: "dfs_init", text: "for (int i = 0; i < n; i++) { visited[i] = false; parent[i] = -1; }" },
+        { key: "dfs_init", text: "void dfs(int u) {" },
+        { key: "dfs_visit", text: "  visited[u] = true;" },
+        { key: "dfs_relax", text: "  for (each neighbor v of u) {" },
+        { key: "dfs_relax", text: "      if (!visited[v]) {" },
+        { key: "dfs_relax", text: "          parent[v] = u; dfs(v);" },
+        { key: "dfs_relax", text: "      }" },
+        { key: "dfs_relax", text: "  }" },
+        { key: "dfs_visit", text: "}" },
       ],
     },
     java: {
@@ -1578,6 +1422,50 @@ window.addEventListener("DOMContentLoaded", () => {
         { key: "dijkstra_extract", text: "}" },
         { key: "dijkstra_done", text: "// All reachable nodes processed" },
       ],
+      prim: [
+        { key: "prim_init", text: "import java.util.*;" },
+        { key: "prim_init", text: "double[] key = new double[n]; int[] parent = new int[n]; boolean[] inMST = new boolean[n];" },
+        { key: "prim_init", text: "Arrays.fill(key, Double.POSITIVE_INFINITY); Arrays.fill(parent, -1); key[s] = 0;" },
+        { key: "prim_init", text: "PriorityQueue<int[]> pq = new PriorityQueue<>((a, b) -> Double.compare(a[0], b[0]));" },
+        { key: "prim_init", text: "pq.offer(new int[]{0, s});" },
+        { key: "prim_extract", text: "while (!pq.isEmpty()) {" },
+        { key: "prim_extract", text: "  int[] curr = pq.poll(); double key_u = curr[0]; int u = curr[1];" },
+        { key: "prim_extract", text: "  if (inMST[u]) continue;" },
+        { key: "prim_extract", text: "  inMST[u] = true;" },
+        { key: "prim_relax", text: "  for (Edge e : adj[u]) {" },
+        { key: "prim_relax", text: "      int v = e.v; double w = e.w;" },
+        { key: "prim_relax", text: "      if (!inMST[v] && w < key[v]) {" },
+        { key: "prim_relax", text: "          key[v] = w; parent[v] = u;" },
+        { key: "prim_relax", text: "          pq.offer(new int[]{(int)key[v], v});" },
+        { key: "prim_relax", text: "      }" },
+        { key: "prim_relax", text: "  }" },
+        { key: "prim_extract", text: "}" },
+        { key: "prim_done", text: "// MST constructed" },
+      ],
+      bfs: [
+        { key: "bfs_init", text: "double[] d = new double[n]; int[] parent = new int[n]; boolean[] visited = new boolean[n];" },
+        { key: "bfs_init", text: "Arrays.fill(d, Double.POSITIVE_INFINITY); Arrays.fill(parent, -1); d[s] = 0; visited[s] = true;" },
+        { key: "bfs_init", text: "Queue<Integer> q = new ArrayDeque<>(); q.add(s);" },
+        { key: "bfs_pop", text: "while (!q.isEmpty()) {" },
+        { key: "bfs_pop", text: "  int u = q.remove();" },
+        { key: "bfs_relax", text: "  for (Edge e : adj[u]) { int v = e.v;" },
+        { key: "bfs_relax", text: "      if (!visited[v]) {" },
+        { key: "bfs_relax", text: "          visited[v] = true; d[v] = d[u] + 1; parent[v] = u; q.add(v);" },
+        { key: "bfs_relax", text: "      }" },
+        { key: "bfs_relax", text: "  }" },
+        { key: "bfs_pop", text: "}" },
+      ],
+      dfs: [
+        { key: "dfs_init", text: "boolean[] visited = new boolean[n]; int[] parent = new int[n]; Arrays.fill(parent, -1);" },
+        { key: "dfs_init", text: "void dfs(int u) {" },
+        { key: "dfs_visit", text: "  visited[u] = true;" },
+        { key: "dfs_relax", text: "  for (Edge e : adj[u]) { int v = e.v;" },
+        { key: "dfs_relax", text: "      if (!visited[v]) {" },
+        { key: "dfs_relax", text: "          parent[v] = u; dfs(v);" },
+        { key: "dfs_relax", text: "      }" },
+        { key: "dfs_relax", text: "  }" },
+        { key: "dfs_visit", text: "}" },
+      ],
     },
     python: {
       relaxation: [
@@ -1629,6 +1517,40 @@ window.addEventListener("DOMContentLoaded", () => {
         { key: "dijkstra_relax", text: "          d[v] = d[u] + w; parent[v] = u" },
         { key: "dijkstra_relax", text: "          heapq.heappush(pq, (d[v], v))" },
         { key: "dijkstra_done", text: "# All reachable nodes processed" },
+      ],
+      prim: [
+        { key: "prim_init", text: "import heapq" },
+        { key: "prim_init", text: "key = {v: float('inf') for v in V}; parent = {v: None for v in V}" },
+        { key: "prim_init", text: "key[s] = 0" },
+        { key: "prim_init", text: "pq = [(0, s)]; in_mst = set()" },
+        { key: "prim_extract", text: "while pq:" },
+        { key: "prim_extract", text: "  key_u, u = heapq.heappop(pq)" },
+        { key: "prim_extract", text: "  if u in in_mst: continue" },
+        { key: "prim_extract", text: "  in_mst.add(u)" },
+        { key: "prim_relax", text: "  for (v, w) in adj[u]:" },
+        { key: "prim_relax", text: "      if v not in in_mst and w < key[v]:" },
+        { key: "prim_relax", text: "          key[v] = w; parent[v] = u" },
+        { key: "prim_relax", text: "          heapq.heappush(pq, (key[v], v))" },
+        { key: "prim_done", text: "# MST constructed" },
+      ],
+      bfs: [
+        { key: "bfs_init", text: "from collections import deque" },
+        { key: "bfs_init", text: "d = {v: float('inf') for v in V}; parent = {v: None for v in V}" },
+        { key: "bfs_init", text: "visited = {v: False for v in V}; d[s] = 0; visited[s] = True" },
+        { key: "bfs_init", text: "Q = deque([s])" },
+        { key: "bfs_pop", text: "while Q:" },
+        { key: "bfs_pop", text: "  u = Q.popleft()" },
+        { key: "bfs_relax", text: "  for (v, _) in adj[u]:" },
+        { key: "bfs_relax", text: "      if not visited[v]:" },
+        { key: "bfs_relax", text: "          visited[v] = True; d[v] = d[u] + 1; parent[v] = u; Q.append(v)" },
+      ],
+      dfs: [
+        { key: "dfs_init", text: "visited = {v: False for v in V}; parent = {v: None for v in V}" },
+        { key: "dfs_init", text: "def dfs(u):" },
+        { key: "dfs_visit", text: "  visited[u] = True" },
+        { key: "dfs_relax", text: "  for (v, _) in adj[u]:" },
+        { key: "dfs_relax", text: "      if not visited[v]:" },
+        { key: "dfs_relax", text: "          parent[v] = u; dfs(v)" },
       ],
     },
     rust: {
@@ -1693,6 +1615,47 @@ window.addEventListener("DOMContentLoaded", () => {
         { key: "dijkstra_relax", text: "      }" },
         { key: "dijkstra_relax", text: "  }" },
         { key: "dijkstra_extract", text: "}" },
+      ],
+      prim: [
+        { key: "prim_init", text: "use std::collections::BinaryHeap;" },
+        { key: "prim_init", text: "let mut key = vec![f64::INFINITY; n]; let mut parent = vec![None; n]; let mut in_mst = vec![false; n];" },
+        { key: "prim_init", text: "key[s] = 0.0;" },
+        { key: "prim_init", text: "let mut pq = BinaryHeap::new(); pq.push(std::cmp::Reverse((0.0, s)));" },
+        { key: "prim_extract", text: "while let Some(std::cmp::Reverse((key_u, u))) = pq.pop() {" },
+        { key: "prim_extract", text: "  if in_mst[u] { continue; }" },
+        { key: "prim_extract", text: "  in_mst[u] = true;" },
+        { key: "prim_relax", text: "  for &(v, w) in &adj[u] {" },
+        { key: "prim_relax", text: "      if !in_mst[v] && w < key[v] {" },
+        { key: "prim_relax", text: "          key[v] = w; parent[v] = Some(u);" },
+        { key: "prim_relax", text: "          pq.push(std::cmp::Reverse((key[v], v)));" },
+        { key: "prim_relax", text: "      }" },
+        { key: "prim_relax", text: "  }" },
+        { key: "prim_extract", text: "}" },
+        { key: "prim_done", text: "// MST constructed" },
+      ],
+      bfs: [
+        { key: "bfs_init", text: "use std::collections::VecDeque;" },
+        { key: "bfs_init", text: "let mut d = vec![i32::MAX; n]; let mut parent = vec![None; n]; let mut visited = vec![false; n];" },
+        { key: "bfs_init", text: "d[s] = 0; visited[s] = true;" },
+        { key: "bfs_init", text: "let mut q = VecDeque::new(); q.push_back(s);" },
+        { key: "bfs_pop", text: "while let Some(u) = q.pop_front() {" },
+        { key: "bfs_relax", text: "  for &v in &adj[u] {" },
+        { key: "bfs_relax", text: "      if !visited[v] {" },
+        { key: "bfs_relax", text: "          visited[v] = true; d[v] = d[u] + 1; parent[v] = Some(u); q.push_back(v);" },
+        { key: "bfs_relax", text: "      }" },
+        { key: "bfs_relax", text: "  }" },
+        { key: "bfs_pop", text: "}" },
+      ],
+      dfs: [
+        { key: "dfs_init", text: "let mut visited = vec![false; n]; let mut parent = vec![None; n];" },
+        { key: "dfs_init", text: "fn dfs(u: usize, adj: &Vec<Vec<usize>>, visited: &mut Vec<bool>, parent: &mut Vec<Option<usize>>) {" },
+        { key: "dfs_visit", text: "  visited[u] = true;" },
+        { key: "dfs_relax", text: "  for &v in &adj[u] {" },
+        { key: "dfs_relax", text: "      if !visited[v] {" },
+        { key: "dfs_relax", text: "          parent[v] = Some(u); dfs(v, adj, visited, parent);" },
+        { key: "dfs_relax", text: "      }" },
+        { key: "dfs_relax", text: "  }" },
+        { key: "dfs_visit", text: "}" },
       ],
     },
     javascript: {
@@ -1819,6 +1782,48 @@ window.addEventListener("DOMContentLoaded", () => {
         { key: "dijkstra_relax", text: "  }" },
         { key: "dijkstra_extract", text: "}" },
       ],
+      prim: [
+        { key: "prim_init", text: "const key = Array(n).fill(Infinity); const parent = Array(n).fill(null); const inMST = Array(n).fill(false);" },
+        { key: "prim_init", text: "key[s] = 0;" },
+        { key: "prim_init", text: "const pq = [[0, s]];" },
+        { key: "prim_extract", text: "while (pq.length > 0) {" },
+        { key: "prim_extract", text: "  pq.sort((a, b) => a[0] - b[0]);" },
+        { key: "prim_extract", text: "  const [key_u, u] = pq.shift();" },
+        { key: "prim_extract", text: "  if (inMST[u]) continue;" },
+        { key: "prim_extract", text: "  inMST[u] = true;" },
+        { key: "prim_relax", text: "  for (const [v, w] of adj[u]) {" },
+        { key: "prim_relax", text: "      if (!inMST[v] && w < key[v]) {" },
+        { key: "prim_relax", text: "          key[v] = w; parent[v] = u;" },
+        { key: "prim_relax", text: "          pq.push([key[v], v]);" },
+        { key: "prim_relax", text: "      }" },
+        { key: "prim_relax", text: "  }" },
+        { key: "prim_extract", text: "}" },
+        { key: "prim_done", text: "// MST constructed" },
+      ],
+      bfs: [
+        { key: "bfs_init", text: "const d = Array(n).fill(Infinity); const parent = Array(n).fill(null);" },
+        { key: "bfs_init", text: "const visited = Array(n).fill(false);" },
+        { key: "bfs_init", text: "d[s] = 0; visited[s] = true; const q = [s];" },
+        { key: "bfs_pop", text: "while (q.length > 0) {" },
+        { key: "bfs_pop", text: "  const u = q.shift();" },
+        { key: "bfs_relax", text: "  for (const [v] of adj[u]) {" },
+        { key: "bfs_relax", text: "      if (!visited[v]) {" },
+        { key: "bfs_relax", text: "          visited[v] = true; d[v] = d[u] + 1; parent[v] = u; q.push(v);" },
+        { key: "bfs_relax", text: "      }" },
+        { key: "bfs_relax", text: "  }" },
+        { key: "bfs_pop", text: "}" },
+      ],
+      dfs: [
+        { key: "dfs_init", text: "const visited = Array(n).fill(false); const parent = Array(n).fill(null);" },
+        { key: "dfs_init", text: "function dfs(u) {" },
+        { key: "dfs_visit", text: "  visited[u] = true;" },
+        { key: "dfs_relax", text: "  for (const [v] of adj[u]) {" },
+        { key: "dfs_relax", text: "      if (!visited[v]) {" },
+        { key: "dfs_relax", text: "          parent[v] = u; dfs(v);" },
+        { key: "dfs_relax", text: "      }" },
+        { key: "dfs_relax", text: "  }" },
+        { key: "dfs_visit", text: "}" },
+      ],
     },
     go: {
       relaxation: [
@@ -1888,6 +1893,52 @@ window.addEventListener("DOMContentLoaded", () => {
         { key: "dijkstra_relax", text: "  }" },
         { key: "dijkstra_extract", text: "}" },
       ],
+      prim: [
+        { key: "prim_init", text: "import (\"container/heap\")" },
+        { key: "prim_init", text: "key := make([]float64, n); parent := make([]int, n); inMST := make([]bool, n)" },
+        { key: "prim_init", text: "for i := range key { key[i] = math.Inf(1); parent[i] = -1 }" },
+        { key: "prim_init", text: "key[s] = 0" },
+        { key: "prim_init", text: "pq := &PriorityQueue{}; heap.Init(pq); heap.Push(pq, Item{0, s})" },
+        { key: "prim_extract", text: "for pq.Len() > 0 {" },
+        { key: "prim_extract", text: "  item := heap.Pop(pq).(Item); key_u, u := item.priority, item.value" },
+        { key: "prim_extract", text: "  if inMST[u] { continue }" },
+        { key: "prim_extract", text: "  inMST[u] = true" },
+        { key: "prim_relax", text: "  for _, e := range adj[u] {" },
+        { key: "prim_relax", text: "      v, w := e.v, e.w" },
+        { key: "prim_relax", text: "      if !inMST[v] && w < key[v] {" },
+        { key: "prim_relax", text: "          key[v] = w; parent[v] = u" },
+        { key: "prim_relax", text: "          heap.Push(pq, Item{key[v], v})" },
+        { key: "prim_relax", text: "      }" },
+        { key: "prim_relax", text: "  }" },
+        { key: "prim_extract", text: "}" },
+        { key: "prim_done", text: "// MST constructed" },
+      ],
+      bfs: [
+        { key: "bfs_init", text: "d := make([]int, n); parent := make([]int, n); visited := make([]bool, n)" },
+        { key: "bfs_init", text: "for i := range d { d[i] = math.MaxInt32; parent[i] = -1 }" },
+        { key: "bfs_init", text: "d[s] = 0; visited[s] = true; q := []int{s}" },
+        { key: "bfs_pop", text: "for len(q) > 0 {" },
+        { key: "bfs_pop", text: "  u := q[0]; q = q[1:]" },
+        { key: "bfs_relax", text: "  for _, v := range adj[u] {" },
+        { key: "bfs_relax", text: "      if !visited[v] {" },
+        { key: "bfs_relax", text: "          visited[v] = true; d[v] = d[u] + 1; parent[v] = u; q = append(q, v)" },
+        { key: "bfs_relax", text: "      }" },
+        { key: "bfs_relax", text: "  }" },
+        { key: "bfs_pop", text: "}" },
+      ],
+      dfs: [
+        { key: "dfs_init", text: "visited := make([]bool, n); parent := make([]int, n)" },
+        { key: "dfs_init", text: "for i := range parent { parent[i] = -1 }" },
+        { key: "dfs_init", text: "var dfs func(int)" },
+        { key: "dfs_init", text: "dfs = func(u int) {" },
+        { key: "dfs_visit", text: "  visited[u] = true" },
+        { key: "dfs_relax", text: "  for _, v := range adj[u] {" },
+        { key: "dfs_relax", text: "      if !visited[v] {" },
+        { key: "dfs_relax", text: "          parent[v] = u; dfs(v)" },
+        { key: "dfs_relax", text: "      }" },
+        { key: "dfs_relax", text: "  }" },
+        { key: "dfs_visit", text: "}" },
+      ],
     },
     kotlin: {
       relaxation: [
@@ -1950,6 +2001,52 @@ window.addEventListener("DOMContentLoaded", () => {
         { key: "dijkstra_relax", text: "      }" },
         { key: "dijkstra_relax", text: "  }" },
         { key: "dijkstra_extract", text: "}" },
+      ],
+      prim: [
+        { key: "prim_init", text: "import java.util.*" },
+        { key: "prim_init", text: "val key = DoubleArray(n) { Double.POSITIVE_INFINITY }" },
+        { key: "prim_init", text: "val parent = IntArray(n) { -1 }" },
+        { key: "prim_init", text: "val inMST = BooleanArray(n)" },
+        { key: "prim_init", text: "key[s] = 0.0" },
+        { key: "prim_init", text: "val pq = PriorityQueue<Pair<Double, Int>>(compareBy { it.first })" },
+        { key: "prim_init", text: "pq.add(0.0 to s)" },
+        { key: "prim_extract", text: "while (pq.isNotEmpty()) {" },
+        { key: "prim_extract", text: "  val (key_u, u) = pq.poll()" },
+        { key: "prim_extract", text: "  if (inMST[u]) continue" },
+        { key: "prim_extract", text: "  inMST[u] = true" },
+        { key: "prim_relax", text: "  adj[u].forEach { (v, w) ->" },
+        { key: "prim_relax", text: "      if (!inMST[v] && w < key[v]) {" },
+        { key: "prim_relax", text: "          key[v] = w; parent[v] = u" },
+        { key: "prim_relax", text: "          pq.add(key[v] to v)" },
+        { key: "prim_relax", text: "      }" },
+        { key: "prim_relax", text: "  }" },
+        { key: "prim_extract", text: "}" },
+        { key: "prim_done", text: "// MST constructed" },
+      ],
+      bfs: [
+        { key: "bfs_init", text: "val d = IntArray(n) { Int.MAX_VALUE }" },
+        { key: "bfs_init", text: "val parent = IntArray(n) { -1 }" },
+        { key: "bfs_init", text: "val visited = BooleanArray(n)" },
+        { key: "bfs_init", text: "d[s] = 0; visited[s] = true; val q = ArrayDeque<Int>(); q.add(s)" },
+        { key: "bfs_pop", text: "while (q.isNotEmpty()) {" },
+        { key: "bfs_pop", text: "  val u = q.removeFirst()" },
+        { key: "bfs_relax", text: "  adj[u].forEach { v ->" },
+        { key: "bfs_relax", text: "      if (!visited[v]) {" },
+        { key: "bfs_relax", text: "          visited[v] = true; d[v] = d[u] + 1; parent[v] = u; q.add(v)" },
+        { key: "bfs_relax", text: "      }" },
+        { key: "bfs_relax", text: "  }" },
+        { key: "bfs_pop", text: "}" },
+      ],
+      dfs: [
+        { key: "dfs_init", text: "val visited = BooleanArray(n); val parent = IntArray(n) { -1 }" },
+        { key: "dfs_init", text: "fun dfs(u: Int) {" },
+        { key: "dfs_visit", text: "  visited[u] = true" },
+        { key: "dfs_relax", text: "  adj[u].forEach { v ->" },
+        { key: "dfs_relax", text: "      if (!visited[v]) {" },
+        { key: "dfs_relax", text: "          parent[v] = u; dfs(v)" },
+        { key: "dfs_relax", text: "      }" },
+        { key: "dfs_relax", text: "  }" },
+        { key: "dfs_visit", text: "}" },
       ],
     },
     swift: {
@@ -2018,6 +2115,54 @@ window.addEventListener("DOMContentLoaded", () => {
         { key: "dijkstra_relax", text: "  }" },
         { key: "dijkstra_extract", text: "}" },
       ],
+      prim: [
+        { key: "prim_init", text: "import Foundation" },
+        { key: "prim_init", text: "var key = Array(repeating: Double.infinity, count: n)" },
+        { key: "prim_init", text: "var parent = Array(repeating: -1, count: n)" },
+        { key: "prim_init", text: "var inMST = Array(repeating: false, count: n)" },
+        { key: "prim_init", text: "key[s] = 0" },
+        { key: "prim_init", text: "var pq = [(0.0, s)]" },
+        { key: "prim_extract", text: "while !pq.isEmpty {" },
+        { key: "prim_extract", text: "  pq.sort { $0.0 < $1.0 }" },
+        { key: "prim_extract", text: "  let (key_u, u) = pq.removeFirst()" },
+        { key: "prim_extract", text: "  if inMST[u] { continue }" },
+        { key: "prim_extract", text: "  inMST[u] = true" },
+        { key: "prim_relax", text: "  for (v, w) in adj[u] {" },
+        { key: "prim_relax", text: "      if !inMST[v] && w < key[v] {" },
+        { key: "prim_relax", text: "          key[v] = w; parent[v] = u" },
+        { key: "prim_relax", text: "          pq.append((key[v], v))" },
+        { key: "prim_relax", text: "      }" },
+        { key: "prim_relax", text: "  }" },
+        { key: "prim_extract", text: "}" },
+        { key: "prim_done", text: "// MST constructed" },
+      ],
+      bfs: [
+        { key: "bfs_init", text: "import Foundation" },
+        { key: "bfs_init", text: "var d = Array(repeating: Int.max, count: n)" },
+        { key: "bfs_init", text: "var parent = Array(repeating: -1, count: n)" },
+        { key: "bfs_init", text: "var visited = Array(repeating: false, count: n)" },
+        { key: "bfs_init", text: "d[s] = 0; visited[s] = true; var q = [s]" },
+        { key: "bfs_pop", text: "while !q.isEmpty {" },
+        { key: "bfs_pop", text: "  let u = q.removeFirst()" },
+        { key: "bfs_relax", text: "  for v in adj[u] {" },
+        { key: "bfs_relax", text: "      if !visited[v] {" },
+        { key: "bfs_relax", text: "          visited[v] = true; d[v] = d[u] + 1; parent[v] = u; q.append(v)" },
+        { key: "bfs_relax", text: "      }" },
+        { key: "bfs_relax", text: "  }" },
+        { key: "bfs_pop", text: "}" },
+      ],
+      dfs: [
+        { key: "dfs_init", text: "var visited = Array(repeating: false, count: n)" },
+        { key: "dfs_init", text: "var parent = Array(repeating: -1, count: n)" },
+        { key: "dfs_init", text: "func dfs(_ u: Int) {" },
+        { key: "dfs_visit", text: "  visited[u] = true" },
+        { key: "dfs_relax", text: "  for v in adj[u] {" },
+        { key: "dfs_relax", text: "      if !visited[v] {" },
+        { key: "dfs_relax", text: "          parent[v] = u; dfs(v)" },
+        { key: "dfs_relax", text: "      }" },
+        { key: "dfs_relax", text: "  }" },
+        { key: "dfs_visit", text: "}" },
+      ],
     },
     csharp: {
       relaxation: [
@@ -2082,6 +2227,50 @@ window.addEventListener("DOMContentLoaded", () => {
         { key: "dijkstra_relax", text: "  }" },
         { key: "dijkstra_extract", text: "}" },
       ],
+      prim: [
+        { key: "prim_init", text: "using System.Collections.Generic;" },
+        { key: "prim_init", text: "double[] key = new double[n]; int[] parent = new int[n]; bool[] inMST = new bool[n];" },
+        { key: "prim_init", text: "Array.Fill(key, double.PositiveInfinity); Array.Fill(parent, -1); key[s] = 0;" },
+        { key: "prim_init", text: "var pq = new PriorityQueue<int, double>(); pq.Enqueue(s, 0);" },
+        { key: "prim_extract", text: "while (pq.Count > 0) {" },
+        { key: "prim_extract", text: "  pq.TryDequeue(out int u, out double key_u);" },
+        { key: "prim_extract", text: "  if (inMST[u]) continue;" },
+        { key: "prim_extract", text: "  inMST[u] = true;" },
+        { key: "prim_relax", text: "  foreach (var (v, w) in adj[u]) {" },
+        { key: "prim_relax", text: "      if (!inMST[v] && w < key[v]) {" },
+        { key: "prim_relax", text: "          key[v] = w; parent[v] = u;" },
+        { key: "prim_relax", text: "          pq.Enqueue(v, key[v]);" },
+        { key: "prim_relax", text: "      }" },
+        { key: "prim_relax", text: "  }" },
+        { key: "prim_extract", text: "}" },
+        { key: "prim_done", text: "// MST constructed" },
+      ],
+      bfs: [
+        { key: "bfs_init", text: "using System.Collections.Generic;" },
+        { key: "bfs_init", text: "int[] d = new int[n]; int[] parent = new int[n]; bool[] visited = new bool[n];" },
+        { key: "bfs_init", text: "Array.Fill(d, int.MaxValue); Array.Fill(parent, -1); d[s] = 0; visited[s] = true;" },
+        { key: "bfs_init", text: "Queue<int> q = new Queue<int>(); q.Enqueue(s);" },
+        { key: "bfs_pop", text: "while (q.Count > 0) {" },
+        { key: "bfs_pop", text: "  int u = q.Dequeue();" },
+        { key: "bfs_relax", text: "  foreach (int v in adj[u]) {" },
+        { key: "bfs_relax", text: "      if (!visited[v]) {" },
+        { key: "bfs_relax", text: "          visited[v] = true; d[v] = d[u] + 1; parent[v] = u; q.Enqueue(v);" },
+        { key: "bfs_relax", text: "      }" },
+        { key: "bfs_relax", text: "  }" },
+        { key: "bfs_pop", text: "}" },
+      ],
+      dfs: [
+        { key: "dfs_init", text: "bool[] visited = new bool[n]; int[] parent = new int[n];" },
+        { key: "dfs_init", text: "Array.Fill(parent, -1);" },
+        { key: "dfs_init", text: "void Dfs(int u) {" },
+        { key: "dfs_visit", text: "  visited[u] = true;" },
+        { key: "dfs_relax", text: "  foreach (int v in adj[u]) {" },
+        { key: "dfs_relax", text: "      if (!visited[v]) {" },
+        { key: "dfs_relax", text: "          parent[v] = u; Dfs(v);" },
+        { key: "dfs_relax", text: "      }" },
+        { key: "dfs_relax", text: "  }" },
+        { key: "dfs_visit", text: "}" },
+      ],
     },
     ruby: {
       relaxation: [
@@ -2127,6 +2316,50 @@ window.addEventListener("DOMContentLoaded", () => {
         { key: "fifo_check_edge", text: "edges.each do |u, v, w|" },
         { key: "fifo_neg_cycle", text: "  puts 'negative cycle' if d[u] + w < d[v]" },
         { key: "fifo_check_edge", text: "end" },
+      ],
+      bfs: [
+        { key: "bfs_init", text: "require 'set'" },
+        { key: "bfs_init", text: "d = Hash.new(Float::INFINITY); parent = {}; visited = Set.new" },
+        { key: "bfs_init", text: "d[s] = 0; visited.add(s); q = [s]" },
+        { key: "bfs_pop", text: "until q.empty?" },
+        { key: "bfs_pop", text: "  u = q.shift" },
+        { key: "bfs_relax", text: "  adj[u].each do |v, _|" },
+        { key: "bfs_relax", text: "      unless visited.include?(v)" },
+        { key: "bfs_relax", text: "          visited.add(v); d[v] = d[u] + 1; parent[v] = u; q << v" },
+        { key: "bfs_relax", text: "      end" },
+        { key: "bfs_relax", text: "  end" },
+        { key: "bfs_pop", text: "end" },
+      ],
+      prim: [
+        { key: "prim_init", text: "require 'set'" },
+        { key: "prim_init", text: "key = Hash.new(Float::INFINITY); parent = {}; in_mst = Set.new" },
+        { key: "prim_init", text: "key[s] = 0" },
+        { key: "prim_init", text: "pq = [[0, s]]" },
+        { key: "prim_extract", text: "until pq.empty?" },
+        { key: "prim_extract", text: "  pq.sort_by! { |x| x[0] }" },
+        { key: "prim_extract", text: "  key_u, u = pq.shift" },
+        { key: "prim_extract", text: "  next if in_mst.include?(u)" },
+        { key: "prim_extract", text: "  in_mst.add(u)" },
+        { key: "prim_relax", text: "  adj[u].each do |v, w|" },
+        { key: "prim_relax", text: "      unless in_mst.include?(v)" },
+        { key: "prim_relax", text: "          if w < key[v]" },
+        { key: "prim_relax", text: "              key[v] = w; parent[v] = u; pq << [key[v], v]" },
+        { key: "prim_relax", text: "          end" },
+        { key: "prim_relax", text: "      end" },
+        { key: "prim_relax", text: "  end" },
+        { key: "prim_extract", text: "end" },
+        { key: "prim_done", text: "# MST constructed" },
+      ],
+      dfs: [
+        { key: "dfs_init", text: "visited = Set.new; parent = {}" },
+        { key: "dfs_init", text: "def dfs(u)" },
+        { key: "dfs_visit", text: "  visited.add(u)" },
+        { key: "dfs_relax", text: "  adj[u].each do |v, _|" },
+        { key: "dfs_relax", text: "      unless visited.include?(v)" },
+        { key: "dfs_relax", text: "          parent[v] = u; dfs(v)" },
+        { key: "dfs_relax", text: "      end" },
+        { key: "dfs_relax", text: "  end" },
+        { key: "dfs_visit", text: "end" },
       ],
     },
     php: {
@@ -2189,6 +2422,47 @@ window.addEventListener("DOMContentLoaded", () => {
         { key: "dijkstra_relax", text: "      }" },
         { key: "dijkstra_relax", text: "  }" },
         { key: "dijkstra_extract", text: "}" },
+      ],
+      prim: [
+        { key: "prim_init", text: "$key = array_fill(0, $n, INF); $parent = array_fill(0, $n, -1); $inMST = array_fill(0, $n, false);" },
+        { key: "prim_init", text: "$key[$s] = 0;" },
+        { key: "prim_init", text: "$pq = [[0, $s]];" },
+        { key: "prim_extract", text: "while (!empty($pq)) {" },
+        { key: "prim_extract", text: "  usort($pq, function($a, $b) { return $a[0] - $b[0]; });" },
+        { key: "prim_extract", text: "  list($key_u, $u) = array_shift($pq);" },
+        { key: "prim_extract", text: "  if ($inMST[$u]) continue;" },
+        { key: "prim_extract", text: "  $inMST[$u] = true;" },
+        { key: "prim_relax", text: "  foreach ($adj[$u] as [$v, $w]) {" },
+        { key: "prim_relax", text: "      if (!$inMST[$v] && $w < $key[$v]) {" },
+        { key: "prim_relax", text: "          $key[$v] = $w; $parent[$v] = $u;" },
+        { key: "prim_relax", text: "          array_push($pq, [$key[$v], $v]);" },
+        { key: "prim_relax", text: "      }" },
+        { key: "prim_relax", text: "  }" },
+        { key: "prim_extract", text: "}" },
+        { key: "prim_done", text: "// MST constructed" },
+      ],
+      bfs: [
+        { key: "bfs_init", text: "$d = array_fill(0, $n, INF); $parent = array_fill(0, $n, -1); $visited = array_fill(0, $n, false);" },
+        { key: "bfs_init", text: "$d[$s] = 0; $visited[$s] = true; $q = [$s];" },
+        { key: "bfs_pop", text: "while (!empty($q)) {" },
+        { key: "bfs_pop", text: "  $u = array_shift($q);" },
+        { key: "bfs_relax", text: "  foreach ($adj[$u] as $v) {" },
+        { key: "bfs_relax", text: "      if (!$visited[$v]) {" },
+        { key: "bfs_relax", text: "          $visited[$v] = true; $d[$v] = $d[$u] + 1; $parent[$v] = $u; array_push($q, $v);" },
+        { key: "bfs_relax", text: "      }" },
+        { key: "bfs_relax", text: "  }" },
+        { key: "bfs_pop", text: "}" },
+      ],
+      dfs: [
+        { key: "dfs_init", text: "$visited = array_fill(0, $n, false); $parent = array_fill(0, $n, -1);" },
+        { key: "dfs_init", text: "function dfs($u) {" },
+        { key: "dfs_visit", text: "  $visited[$u] = true;" },
+        { key: "dfs_relax", text: "  foreach ($adj[$u] as $v) {" },
+        { key: "dfs_relax", text: "      if (!$visited[$v]) {" },
+        { key: "dfs_relax", text: "          $parent[$v] = $u; dfs($v);" },
+        { key: "dfs_relax", text: "      }" },
+        { key: "dfs_relax", text: "  }" },
+        { key: "dfs_visit", text: "}" },
       ],
     },
     scala: {
@@ -2254,6 +2528,52 @@ window.addEventListener("DOMContentLoaded", () => {
         { key: "dijkstra_relax", text: "  }" },
         { key: "dijkstra_extract", text: "}" },
       ],
+      prim: [
+        { key: "prim_init", text: "import scala.collection.mutable" },
+        { key: "prim_init", text: "val key = Array.fill(n)(Double.PositiveInfinity)" },
+        { key: "prim_init", text: "val parent = Array.fill(n)(-1)" },
+        { key: "prim_init", text: "val inMST = Array.fill(n)(false)" },
+        { key: "prim_init", text: "key(s) = 0.0" },
+        { key: "prim_init", text: "val pq = mutable.PriorityQueue((0.0, s))(Ordering.by(-_._1))" },
+        { key: "prim_extract", text: "while (pq.nonEmpty) {" },
+        { key: "prim_extract", text: "  val (key_u, u) = pq.dequeue" },
+        { key: "prim_extract", text: "  if (inMST(u)) return" },
+        { key: "prim_extract", text: "  inMST(u) = true" },
+        { key: "prim_relax", text: "  adj(u).foreach { case (v, w) =>" },
+        { key: "prim_relax", text: "      if (!inMST(v) && w < key(v)) {" },
+        { key: "prim_relax", text: "          key(v) = w; parent(v) = u" },
+        { key: "prim_relax", text: "          pq.enqueue((key(v), v))" },
+        { key: "prim_relax", text: "      }" },
+        { key: "prim_relax", text: "  }" },
+        { key: "prim_extract", text: "}" },
+        { key: "prim_done", text: "// MST constructed" },
+      ],
+      bfs: [
+        { key: "bfs_init", text: "import scala.collection.mutable" },
+        { key: "bfs_init", text: "val d = Array.fill(n)(Int.MaxValue)" },
+        { key: "bfs_init", text: "val parent = Array.fill(n)(-1)" },
+        { key: "bfs_init", text: "val visited = Array.fill(n)(false)" },
+        { key: "bfs_init", text: "d(s) = 0; visited(s) = true; val q = mutable.Queue(s)" },
+        { key: "bfs_pop", text: "while (q.nonEmpty) {" },
+        { key: "bfs_pop", text: "  val u = q.dequeue" },
+        { key: "bfs_relax", text: "  adj(u).foreach { v =>" },
+        { key: "bfs_relax", text: "      if (!visited(v)) {" },
+        { key: "bfs_relax", text: "          visited(v) = true; d(v) = d(u) + 1; parent(v) = u; q.enqueue(v)" },
+        { key: "bfs_relax", text: "      }" },
+        { key: "bfs_relax", text: "  }" },
+        { key: "bfs_pop", text: "}" },
+      ],
+      dfs: [
+        { key: "dfs_init", text: "val visited = Array.fill(n)(false); val parent = Array.fill(n)(-1)" },
+        { key: "dfs_init", text: "def dfs(u: Int): Unit = {" },
+        { key: "dfs_visit", text: "  visited(u) = true" },
+        { key: "dfs_relax", text: "  adj(u).foreach { v =>" },
+        { key: "dfs_relax", text: "      if (!visited(v)) {" },
+        { key: "dfs_relax", text: "          parent(v) = u; dfs(v)" },
+        { key: "dfs_relax", text: "      }" },
+        { key: "dfs_relax", text: "  }" },
+        { key: "dfs_visit", text: "}" },
+      ],
     },
     haskell: {
       relaxation: [
@@ -2298,6 +2618,43 @@ window.addEventListener("DOMContentLoaded", () => {
         { key: "dijkstra_relax", text: "              (update d'' v (d'' !! u + w), update parent'' v u, H.insert (d'' !! u + w, v) pq'')" },
         { key: "dijkstra_relax", text: "            else (d'', parent'', pq'')" },
         { key: "dijkstra_relax", text: "          in foldr relax (d, parent, pq') (adj !! u)" },
+      ],
+      prim: [
+        { key: "prim_init", text: "import Data.Heap (MinHeap, empty, insert, view)" },
+        { key: "prim_init", text: "import qualified Data.Heap as H" },
+        { key: "prim_init", text: "let key = replicate n (1/0) in let parent = replicate n (-1) in" },
+        { key: "prim_init", text: "let key' = update key s 0 in" },
+        { key: "prim_init", text: "let pq = H.singleton (0, s) in" },
+        { key: "prim_extract", text: "prim key parent pq = case H.view pq of" },
+        { key: "prim_extract", text: "  Nothing -> (key, parent)" },
+        { key: "prim_extract", text: "  Just ((key_u, u), pq') ->" },
+        { key: "prim_extract", text: "    if inMST u then prim key parent pq'" },
+        { key: "prim_relax", text: "    else let relax (v, w) (key'', parent'', pq'') =" },
+        { key: "prim_relax", text: "            if not (inMST v) && w < key'' !! v then" },
+        { key: "prim_relax", text: "              (update key'' v w, update parent'' v u, H.insert (w, v) pq'')" },
+        { key: "prim_relax", text: "            else (key'', parent'', pq'')" },
+        { key: "prim_relax", text: "          in foldr relax (key, parent, pq') (adj !! u)" },
+        { key: "prim_done", text: "-- MST constructed" },
+      ],
+      bfs: [
+        { key: "bfs_init", text: "import Data.Sequence (Seq, (|>), (<|), empty, null)" },
+        { key: "bfs_init", text: "d = replicate n maxBound :: [Int]" },
+        { key: "bfs_init", text: "parent = replicate n Nothing :: [Maybe Int]" },
+        { key: "bfs_init", text: "visited = replicate n False" },
+        { key: "bfs_init", text: "d' = take s d ++ [0] ++ drop (s+1) d" },
+        { key: "bfs_init", text: "visited' = take s visited ++ [True] ++ drop (s+1) visited" },
+        { key: "bfs_init", text: "q = s <| empty" },
+        { key: "bfs_pop", text: "bfs d parent visited q | null q = (d, parent)" },
+        { key: "bfs_pop", text: "              | otherwise = let (u :< qs) = viewl q in process u qs" },
+        { key: "bfs_relax", text: "process u qs = foldl relax (qs, d, parent, visited) (adj u)" },
+        { key: "bfs_relax", text: "relax (q, d, p, v) n | not (v !! n) = (n <| q, update d n (d !! u + 1), update p n (Just u), update v n True)" },
+        { key: "bfs_relax", text: "                | otherwise = (q, d, p, v)" },
+      ],
+      dfs: [
+        { key: "dfs_init", text: "visited = replicate n False :: [Bool]" },
+        { key: "dfs_init", text: "parent = replicate n Nothing :: [Maybe Int]" },
+        { key: "dfs_init", text: "dfs u visited parent = let visited' = update visited u True in" },
+        { key: "dfs_visit", text: "  foldl (\\acc v -> if not (visited !! v) then dfs v (update acc v True) (update parent v (Just u)) else acc) visited' (adj u)" },
       ],
     },
     ocaml: {
@@ -2362,6 +2719,49 @@ window.addEventListener("DOMContentLoaded", () => {
         { key: "dijkstra_relax", text: "            else (d'', parent'', pq'')" },
         { key: "dijkstra_relax", text: "        in List.fold_right relax adj.(u) (d, parent, pq')" },
       ],
+      prim: [
+        { key: "prim_init", text: "module Heap = BatHeap" },
+        { key: "prim_init", text: "let key = Array.make n infinity in" },
+        { key: "prim_init", text: "let parent = Array.make n (-1) in" },
+        { key: "prim_init", text: "let in_mst = Array.make n false in" },
+        { key: "prim_init", text: "key.(s) <- 0.0;" },
+        { key: "prim_init", text: "let pq = Heap.empty |> Heap.insert (0.0, s) in" },
+        { key: "prim_extract", text: "let rec prim key parent in_mst pq = match Heap.find_min pq with" },
+        { key: "prim_extract", text: "  | None -> (key, parent)" },
+        { key: "prim_extract", text: "  | Some (key_u, u) ->" },
+        { key: "prim_extract", text: "    let pq' = Heap.delete_min pq in" },
+        { key: "prim_extract", text: "    if in_mst.(u) then prim key parent in_mst pq'" },
+        { key: "prim_extract", text: "    else (in_mst.(u) <- true;" },
+        { key: "prim_relax", text: "     let relax (v, w) (key'', parent'', pq'') =" },
+        { key: "prim_relax", text: "            if not in_mst.(v) && w < key''.(v) then" },
+        { key: "prim_relax", text: "              (key''.(v) <- w; parent''.(v) <- u; Heap.insert (w, v) pq'')" },
+        { key: "prim_relax", text: "            else (key'', parent'', pq'')" },
+        { key: "prim_relax", text: "     in List.fold_right relax adj.(u) (key, parent, pq'))" },
+        { key: "prim_done", text: "(* MST constructed *)" },
+      ],
+      bfs: [
+        { key: "bfs_init", text: "module Queue = BatQueue" },
+        { key: "bfs_init", text: "let d = Array.make n max_int in" },
+        { key: "bfs_init", text: "let parent = Array.make n None in" },
+        { key: "bfs_init", text: "let visited = Array.make n false in" },
+        { key: "bfs_init", text: "d.(s) <- 0; visited.(s) <- true;" },
+        { key: "bfs_init", text: "let q = Queue.empty |> Queue.push s in" },
+        { key: "bfs_pop", text: "let rec bfs d parent visited q = match Queue.is_empty q with" },
+        { key: "bfs_pop", text: "  | true -> (d, parent)" },
+        { key: "bfs_pop", text: "  | false -> let (u, q') = Queue.pop q in process u q' d parent visited" },
+        { key: "bfs_relax", text: "and process u q d parent visited = List.fold_left (fun (q', d', p', v') v ->" },
+        { key: "bfs_relax", text: "    if not v'.(v) then (Queue.push v q', d'.(v) <- d'.(u) + 1; p'.(v) <- Some u; v'.(v) <- true; (q', d', p', v'))" },
+        { key: "bfs_relax", text: "    else (q', d', p', v')) (q, d, parent, visited) (adj u)" },
+      ],
+      dfs: [
+        { key: "dfs_init", text: "let visited = Array.make n false in" },
+        { key: "dfs_init", text: "let parent = Array.make n None in" },
+        { key: "dfs_init", text: "let rec dfs u visited parent =" },
+        { key: "dfs_visit", text: "  visited.(u) <- true;" },
+        { key: "dfs_relax", text: "  List.iter (fun v ->" },
+        { key: "dfs_relax", text: "      if not visited.(v) then (parent.(v) <- Some u; dfs v visited parent)" },
+        { key: "dfs_relax", text: "  ) (adj u)" },
+      ],
     },
     fsharp: {
       relaxation: [
@@ -2422,6 +2822,44 @@ window.addEventListener("DOMContentLoaded", () => {
         { key: "dijkstra_relax", text: "      if d.[u] + w < d.[v] then" },
         { key: "dijkstra_relax", text: "        d.[v] <- d.[u] + w; parent.[v] <- u" },
         { key: "dijkstra_relax", text: "        pq.Add((d.[v], v)) |> ignore)" },
+      ],
+      prim: [
+        { key: "prim_init", text: "open System.Collections.Generic" },
+        { key: "prim_init", text: "let key = Array.create n System.Double.PositiveInfinity" },
+        { key: "prim_init", text: "let parent = Array.create n -1" },
+        { key: "prim_init", text: "let inMST = Array.create n false" },
+        { key: "prim_init", text: "key.[s] <- 0.0" },
+        { key: "prim_init", text: "let pq = SortedSet<(float * int)>(compare); pq.Add((0.0, s)) |> ignore" },
+        { key: "prim_extract", text: "while pq.Count > 0 do" },
+        { key: "prim_extract", text: "  let (key_u, u) = pq.Min; pq.Remove((key_u, u)) |> ignore" },
+        { key: "prim_extract", text: "  if inMST.[u] then ()" },
+        { key: "prim_extract", text: "  else inMST.[u] <- true" },
+        { key: "prim_relax", text: "  adj.[u] |> List.iter (fun (v, w) ->" },
+        { key: "prim_relax", text: "      if not inMST.[v] && w < key.[v] then" },
+        { key: "prim_relax", text: "        key.[v] <- w; parent.[v] <- u" },
+        { key: "prim_relax", text: "        pq.Add((key.[v], v)) |> ignore)" },
+      ],
+      bfs: [
+        { key: "bfs_init", text: "open System.Collections.Generic" },
+        { key: "bfs_init", text: "let d = Array.create n System.Int32.MaxValue" },
+        { key: "bfs_init", text: "let parent = Array.create n -1" },
+        { key: "bfs_init", text: "let visited = Array.create n false" },
+        { key: "bfs_init", text: "d.[s] <- 0; visited.[s] <- true" },
+        { key: "bfs_init", text: "let q = Queue<int>(); q.Enqueue(s)" },
+        { key: "bfs_pop", text: "while q.Count > 0 do" },
+        { key: "bfs_pop", text: "  let u = q.Dequeue()" },
+        { key: "bfs_relax", text: "  adj.[u] |> List.iter (fun v ->" },
+        { key: "bfs_relax", text: "      if not visited.[v] then" },
+        { key: "bfs_relax", text: "        visited.[v] <- true; d.[v] <- d.[u] + 1; parent.[v] <- u; q.Enqueue(v))" },
+      ],
+      dfs: [
+        { key: "dfs_init", text: "let visited = Array.create n false" },
+        { key: "dfs_init", text: "let parent = Array.create n -1" },
+        { key: "dfs_init", text: "let rec dfs u =" },
+        { key: "dfs_visit", text: "  visited.[u] <- true" },
+        { key: "dfs_relax", text: "  adj.[u] |> List.iter (fun v ->" },
+        { key: "dfs_relax", text: "      if not visited.[v] then" },
+        { key: "dfs_relax", text: "        parent.[v] <- u; dfs v)" },
       ],
     },
     dart: {
@@ -2486,6 +2924,55 @@ window.addEventListener("DOMContentLoaded", () => {
         { key: "dijkstra_relax", text: "  }" },
         { key: "dijkstra_extract", text: "}" },
       ],
+      prim: [
+        { key: "prim_init", text: "import 'dart:collection';" },
+        { key: "prim_init", text: "List<double> key = List.filled(n, double.infinity);" },
+        { key: "prim_init", text: "List<int> parent = List.filled(n, -1);" },
+        { key: "prim_init", text: "List<bool> inMST = List.filled(n, false);" },
+        { key: "prim_init", text: "key[s] = 0;" },
+        { key: "prim_init", text: "var pq = PriorityQueue<MapEntry<int, double>>((a, b) => a.value.compareTo(b.value));" },
+        { key: "prim_init", text: "pq.addEntry(MapEntry(s, 0));" },
+        { key: "prim_extract", text: "while (pq.isNotEmpty) {" },
+        { key: "prim_extract", text: "  var entry = pq.removeFirst(); int u = entry.key; double key_u = entry.value;" },
+        { key: "prim_extract", text: "  if (inMST[u]) continue;" },
+        { key: "prim_extract", text: "  inMST[u] = true;" },
+        { key: "prim_relax", text: "  for (var e in adj[u]) {" },
+        { key: "prim_relax", text: "      int v = e[0]; double w = e[1];" },
+        { key: "prim_relax", text: "      if (!inMST[v] && w < key[v]) {" },
+        { key: "prim_relax", text: "          key[v] = w; parent[v] = u;" },
+        { key: "prim_relax", text: "          pq.addEntry(MapEntry(v, key[v]));" },
+        { key: "prim_relax", text: "      }" },
+        { key: "prim_relax", text: "  }" },
+        { key: "prim_extract", text: "}" },
+        { key: "prim_done", text: "// MST constructed" },
+      ],
+      bfs: [
+        { key: "bfs_init", text: "import 'dart:collection';" },
+        { key: "bfs_init", text: "List<int> d = List.filled(n, 999999);" },
+        { key: "bfs_init", text: "List<int> parent = List.filled(n, -1);" },
+        { key: "bfs_init", text: "List<bool> visited = List.filled(n, false);" },
+        { key: "bfs_init", text: "d[s] = 0; visited[s] = true; var q = Queue<int>(); q.add(s);" },
+        { key: "bfs_pop", text: "while (q.isNotEmpty) {" },
+        { key: "bfs_pop", text: "  int u = q.removeFirst();" },
+        { key: "bfs_relax", text: "  for (int v in adj[u]) {" },
+        { key: "bfs_relax", text: "      if (!visited[v]) {" },
+        { key: "bfs_relax", text: "          visited[v] = true; d[v] = d[u] + 1; parent[v] = u; q.add(v);" },
+        { key: "bfs_relax", text: "      }" },
+        { key: "bfs_relax", text: "  }" },
+        { key: "bfs_pop", text: "}" },
+      ],
+      dfs: [
+        { key: "dfs_init", text: "List<bool> visited = List.filled(n, false);" },
+        { key: "dfs_init", text: "List<int?> parent = List.filled(n, null);" },
+        { key: "dfs_init", text: "void dfs(int u) {" },
+        { key: "dfs_visit", text: "  visited[u] = true;" },
+        { key: "dfs_relax", text: "  for (int v in adj[u]) {" },
+        { key: "dfs_relax", text: "      if (!visited[v]) {" },
+        { key: "dfs_relax", text: "          parent[v] = u; dfs(v);" },
+        { key: "dfs_relax", text: "      }" },
+        { key: "dfs_relax", text: "  }" },
+        { key: "dfs_visit", text: "}" },
+      ],
     },
     lua: {
       relaxation: [
@@ -2532,6 +3019,50 @@ window.addEventListener("DOMContentLoaded", () => {
         { key: "fifo_relax", text: "      end" },
         { key: "fifo_relax", text: "  end" },
         { key: "fifo_pop", text: "end" },
+      ],
+      bfs: [
+        { key: "bfs_init", text: "local d = {}; local parent = {}; local visited = {}" },
+        { key: "bfs_init", text: "for i = 1, n do d[i] = math.huge; parent[i] = nil; visited[i] = false end" },
+        { key: "bfs_init", text: "d[s] = 0; visited[s] = true; local q = {s}" },
+        { key: "bfs_pop", text: "while #q > 0 do" },
+        { key: "bfs_pop", text: "  local u = table.remove(q, 1)" },
+        { key: "bfs_relax", text: "  for _, v in ipairs(adj[u]) do" },
+        { key: "bfs_relax", text: "      if not visited[v] then" },
+        { key: "bfs_relax", text: "          visited[v] = true; d[v] = d[u] + 1; parent[v] = u; table.insert(q, v)" },
+        { key: "bfs_relax", text: "      end" },
+        { key: "bfs_relax", text: "  end" },
+        { key: "bfs_pop", text: "end" },
+      ],
+      prim: [
+        { key: "prim_init", text: "local key = {}; local parent = {}; local in_mst = {}" },
+        { key: "prim_init", text: "for i = 1, n do key[i] = math.huge; parent[i] = nil; in_mst[i] = false end" },
+        { key: "prim_init", text: "key[s] = 0; local pq = {{0, s}}" },
+        { key: "prim_extract", text: "while #pq > 0 do" },
+        { key: "prim_extract", text: "  table.sort(pq, function(a, b) return a[1] < b[1] end)" },
+        { key: "prim_extract", text: "  local key_u, u = table.remove(pq, 1)[1], table.remove(pq, 1)[2]" },
+        { key: "prim_extract", text: "  if in_mst[u] then goto continue end" },
+        { key: "prim_extract", text: "  in_mst[u] = true" },
+        { key: "prim_relax", text: "  for _, edge in ipairs(adj[u]) do" },
+        { key: "prim_relax", text: "      local v, w = edge[1], edge[2]" },
+        { key: "prim_relax", text: "      if not in_mst[v] and w < key[v] then" },
+        { key: "prim_relax", text: "          key[v] = w; parent[v] = u; table.insert(pq, {key[v], v})" },
+        { key: "prim_relax", text: "      end" },
+        { key: "prim_relax", text: "  end" },
+        { key: "prim_extract", text: "  ::continue::" },
+        { key: "prim_extract", text: "end" },
+        { key: "prim_done", text: "-- MST constructed" },
+      ],
+      dfs: [
+        { key: "dfs_init", text: "local visited = {}; local parent = {}" },
+        { key: "dfs_init", text: "for i = 1, n do visited[i] = false; parent[i] = nil end" },
+        { key: "dfs_init", text: "local function dfs(u)" },
+        { key: "dfs_visit", text: "  visited[u] = true" },
+        { key: "dfs_relax", text: "  for _, v in ipairs(adj[u]) do" },
+        { key: "dfs_relax", text: "      if not visited[v] then" },
+        { key: "dfs_relax", text: "          parent[v] = u; dfs(v)" },
+        { key: "dfs_relax", text: "      end" },
+        { key: "dfs_relax", text: "  end" },
+        { key: "dfs_visit", text: "end" },
       ],
     },
     perl: {
@@ -2595,6 +3126,49 @@ window.addEventListener("DOMContentLoaded", () => {
         { key: "dijkstra_relax", text: "  }" },
         { key: "dijkstra_extract", text: "}" },
       ],
+      prim: [
+        { key: "prim_init", text: "use strict; use warnings;" },
+        { key: "prim_init", text: "my @key = (inf) x $n; my @parent = (-1) x $n; my @in_mst = (0) x $n;" },
+        { key: "prim_init", text: "$key[$s] = 0; my @pq = ([0, $s]);" },
+        { key: "prim_extract", text: "while (@pq) {" },
+        { key: "prim_extract", text: "  @pq = sort { $a->[0] <=> $b->[0] } @pq;" },
+        { key: "prim_extract", text: "  my ($key_u, $u) = @{shift @pq};" },
+        { key: "prim_extract", text: "  next if $in_mst[$u];" },
+        { key: "prim_extract", text: "  $in_mst[$u] = 1;" },
+        { key: "prim_relax", text: "  for my $edge (@{$adj[$u]}) {" },
+        { key: "prim_relax", text: "      my ($v, $w) = @$edge;" },
+        { key: "prim_relax", text: "      if (!$in_mst[$v] && $w < $key[$v]) {" },
+        { key: "prim_relax", text: "          $key[$v] = $w; $parent[$v] = $u; push @pq, [$key[$v], $v];" },
+        { key: "prim_relax", text: "      }" },
+        { key: "prim_relax", text: "  }" },
+        { key: "prim_extract", text: "}" },
+        { key: "prim_done", text: "# MST constructed" },
+      ],
+      bfs: [
+        { key: "bfs_init", text: "use strict; use warnings;" },
+        { key: "bfs_init", text: "my @d = (999999) x $n; my @parent = (-1) x $n; my @visited = (0) x $n;" },
+        { key: "bfs_init", text: "$d[$s] = 0; $visited[$s] = 1; my @q = ($s);" },
+        { key: "bfs_pop", text: "while (@q) {" },
+        { key: "bfs_pop", text: "  my $u = shift @q;" },
+        { key: "bfs_relax", text: "  for my $v (@{$adj[$u]}) {" },
+        { key: "bfs_relax", text: "      if (!$visited[$v]) {" },
+        { key: "bfs_relax", text: "          $visited[$v] = 1; $d[$v] = $d[$u] + 1; $parent[$v] = $u; push @q, $v;" },
+        { key: "bfs_relax", text: "      }" },
+        { key: "bfs_relax", text: "  }" },
+        { key: "bfs_pop", text: "}" },
+      ],
+      dfs: [
+        { key: "dfs_init", text: "my @visited = (0) x $n; my @parent = (-1) x $n;" },
+        { key: "dfs_init", text: "sub dfs {" },
+        { key: "dfs_init", text: "  my ($u) = @_;" },
+        { key: "dfs_visit", text: "  $visited[$u] = 1;" },
+        { key: "dfs_relax", text: "  for my $v (@{$adj[$u]}) {" },
+        { key: "dfs_relax", text: "      if (!$visited[$v]) {" },
+        { key: "dfs_relax", text: "          $parent[$v] = $u; dfs($v);" },
+        { key: "dfs_relax", text: "      }" },
+        { key: "dfs_relax", text: "  }" },
+        { key: "dfs_visit", text: "}" },
+      ],
     },
     r: {
       relaxation: [
@@ -2657,6 +3231,49 @@ window.addEventListener("DOMContentLoaded", () => {
         { key: "dijkstra_relax", text: "  }" },
         { key: "dijkstra_extract", text: "}" },
       ],
+      prim: [
+        { key: "prim_init", text: "key <- rep(Inf, n); parent <- rep(NA, n); inMST <- rep(FALSE, n)" },
+        { key: "prim_init", text: "key[s] <- 0" },
+        { key: "prim_init", text: "pq <- data.frame(key = 0, node = s)" },
+        { key: "prim_extract", text: "while (nrow(pq) > 0) {" },
+        { key: "prim_extract", text: "  pq <- pq[order(pq$key), ]" },
+        { key: "prim_extract", text: "  key_u <- pq$key[1]; u <- pq$node[1]; pq <- pq[-1, ]" },
+        { key: "prim_extract", text: "  if (inMST[u]) next" },
+        { key: "prim_extract", text: "  inMST[u] <- TRUE" },
+        { key: "prim_relax", text: "  for (edge in adj[[u]]) {" },
+        { key: "prim_relax", text: "      v <- edge$v; w <- edge$w" },
+        { key: "prim_relax", text: "      if (!inMST[v] && w < key[v]) {" },
+        { key: "prim_relax", text: "          key[v] <- w; parent[v] <- u" },
+        { key: "prim_relax", text: "          pq <- rbind(pq, data.frame(key = key[v], node = v))" },
+        { key: "prim_relax", text: "      }" },
+        { key: "prim_relax", text: "  }" },
+        { key: "prim_extract", text: "}" },
+        { key: "prim_done", text: "# MST constructed" },
+      ],
+      bfs: [
+        { key: "bfs_init", text: "library(igraph)" },
+        { key: "bfs_init", text: "d <- rep(Inf, n); parent <- rep(NA, n); visited <- rep(FALSE, n)" },
+        { key: "bfs_init", text: "d[s] <- 0; visited[s] <- TRUE; q <- c(s)" },
+        { key: "bfs_pop", text: "while (length(q) > 0) {" },
+        { key: "bfs_pop", text: "  u <- q[1]; q <- q[-1]" },
+        { key: "bfs_relax", text: "  for (v in adj[[u]]) {" },
+        { key: "bfs_relax", text: "      if (!visited[v]) {" },
+        { key: "bfs_relax", text: "          visited[v] <- TRUE; d[v] <- d[u] + 1; parent[v] <- u; q <- c(q, v)" },
+        { key: "bfs_relax", text: "      }" },
+        { key: "bfs_relax", text: "  }" },
+        { key: "bfs_pop", text: "}" },
+      ],
+      dfs: [
+        { key: "dfs_init", text: "visited <- rep(FALSE, n); parent <- rep(NA, n)" },
+        { key: "dfs_init", text: "dfs <- function(u) {" },
+        { key: "dfs_visit", text: "  visited[u] <<- TRUE" },
+        { key: "dfs_relax", text: "  for (v in adj[[u]]) {" },
+        { key: "dfs_relax", text: "      if (!visited[v]) {" },
+        { key: "dfs_relax", text: "          parent[v] <<- u; dfs(v)" },
+        { key: "dfs_relax", text: "      }" },
+        { key: "dfs_relax", text: "  }" },
+        { key: "dfs_visit", text: "}" },
+      ],
     },
     matlab: {
       relaxation: [
@@ -2718,6 +3335,47 @@ window.addEventListener("DOMContentLoaded", () => {
         { key: "dijkstra_relax", text: "  end" },
         { key: "dijkstra_extract", text: "end" },
       ],
+      prim: [
+        { key: "prim_init", text: "key = inf(1, n); parent = zeros(1, n); inMST = false(1, n);" },
+        { key: "prim_init", text: "key(s) = 0; pq = [0, s];" },
+        { key: "prim_extract", text: "while ~isempty(pq)" },
+        { key: "prim_extract", text: "  [~, idx] = min(pq(:, 1)); key_u = pq(idx, 1); u = pq(idx, 2);" },
+        { key: "prim_extract", text: "  pq(idx, :) = [];" },
+        { key: "prim_extract", text: "  if inMST(u), continue, end" },
+        { key: "prim_extract", text: "  inMST(u) = true;" },
+        { key: "prim_relax", text: "  for edge = adj{u}" },
+        { key: "prim_relax", text: "      v = edge(1); w = edge(2);" },
+        { key: "prim_relax", text: "      if ~inMST(v) && w < key(v)" },
+        { key: "prim_relax", text: "          key(v) = w; parent(v) = u;" },
+        { key: "prim_relax", text: "          pq = [pq; key(v), v];" },
+        { key: "prim_relax", text: "      end" },
+        { key: "prim_relax", text: "  end" },
+        { key: "prim_extract", text: "end" },
+        { key: "prim_done", text: "% MST constructed" },
+      ],
+      bfs: [
+        { key: "bfs_init", text: "d = inf(1, n); parent = zeros(1, n); visited = false(1, n);" },
+        { key: "bfs_init", text: "d(s) = 0; visited(s) = true; q = [s];" },
+        { key: "bfs_pop", text: "while ~isempty(q)" },
+        { key: "bfs_pop", text: "  u = q(1); q = q(2:end);" },
+        { key: "bfs_relax", text: "  for v = adj{u}" },
+        { key: "bfs_relax", text: "      if ~visited(v)" },
+        { key: "bfs_relax", text: "          visited(v) = true; d(v) = d(u) + 1; parent(v) = u; q = [q, v];" },
+        { key: "bfs_relax", text: "      end" },
+        { key: "bfs_relax", text: "  end" },
+        { key: "bfs_pop", text: "end" },
+      ],
+      dfs: [
+        { key: "dfs_init", text: "visited = false(1, n); parent = zeros(1, n);" },
+        { key: "dfs_init", text: "function dfs(u)" },
+        { key: "dfs_visit", text: "  visited(u) = true;" },
+        { key: "dfs_relax", text: "  for v = adj{u}" },
+        { key: "dfs_relax", text: "      if ~visited(v)" },
+        { key: "dfs_relax", text: "          parent(v) = u; dfs(v);" },
+        { key: "dfs_relax", text: "      end" },
+        { key: "dfs_relax", text: "  end" },
+        { key: "dfs_visit", text: "end" },
+      ],
     },
     julia: {
       relaxation: [
@@ -2776,15 +3434,53 @@ window.addEventListener("DOMContentLoaded", () => {
         { key: "dijkstra_relax", text: "  end" },
         { key: "dijkstra_extract", text: "end" },
       ],
+      prim: [
+        { key: "prim_init", text: "using DataStructures" },
+        { key: "prim_init", text: "key = fill(Inf, n); parent = fill(nothing, n); inMST = falses(n)" },
+        { key: "prim_init", text: "key[s] = 0" },
+        { key: "prim_init", text: "pq = PriorityQueue(Base.Order.Forward, [(key[s], s)])" },
+        { key: "prim_extract", text: "while !isempty(pq)" },
+        { key: "prim_extract", text: "  (key_u, u) = dequeue!(pq)" },
+        { key: "prim_extract", text: "  inMST[u] && continue" },
+        { key: "prim_extract", text: "  inMST[u] = true" },
+        { key: "prim_relax", text: "  for (v, w) in adj[u]" },
+        { key: "prim_relax", text: "      inMST[v] && continue" },
+        { key: "prim_relax", text: "      if w < key[v]" },
+        { key: "prim_relax", text: "          key[v] = w; parent[v] = u" },
+        { key: "prim_relax", text: "          enqueue!(pq, key[v], v)" },
+        { key: "prim_relax", text: "      end" },
+        { key: "prim_relax", text: "  end" },
+        { key: "prim_extract", text: "end" },
+        { key: "prim_done", text: "# MST constructed" },
+      ],
+      bfs: [
+        { key: "bfs_init", text: "using DataStructures" },
+        { key: "bfs_init", text: "d = fill(Inf, n); parent = fill(nothing, n); visited = falses(n)" },
+        { key: "bfs_init", text: "d[s] = 0; visited[s] = true; q = Queue{Int}(); enqueue!(q, s)" },
+        { key: "bfs_pop", text: "while !isempty(q)" },
+        { key: "bfs_pop", text: "  u = dequeue!(q)" },
+        { key: "bfs_relax", text: "  for v in adj[u]" },
+        { key: "bfs_relax", text: "      if !visited[v]" },
+        { key: "bfs_relax", text: "          visited[v] = true; d[v] = d[u] + 1; parent[v] = u; enqueue!(q, v)" },
+        { key: "bfs_relax", text: "      end" },
+        { key: "bfs_relax", text: "  end" },
+        { key: "bfs_pop", text: "end" },
+      ],
+      dfs: [
+        { key: "dfs_init", text: "visited = falses(n); parent = fill(nothing, n)" },
+        { key: "dfs_init", text: "function dfs(u)" },
+        { key: "dfs_visit", text: "  visited[u] = true" },
+        { key: "dfs_relax", text: "  for v in adj[u]" },
+        { key: "dfs_relax", text: "      if !visited[v]" },
+        { key: "dfs_relax", text: "          parent[v] = u; dfs(v)" },
+        { key: "dfs_relax", text: "      end" },
+        { key: "dfs_relax", text: "  end" },
+        { key: "dfs_visit", text: "end" },
+      ],
     },
   };
 
-  function escapeHtml(str) {
-    return str
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;");
-  }
+  // escapeHtml is now imported from utils/helpers.js
 
   function highlightSyntax(text, lang) {
     // Escape HTML first
@@ -2956,7 +3652,12 @@ window.addEventListener("DOMContentLoaded", () => {
     const algoKey = algorithmSelect.value;
     const pseudoLines = PSEUDO_TEMPLATES[algoKey];
     const lang = languageSelect.value;
-    const codeLines = CODE_TEMPLATES[lang] && CODE_TEMPLATES[lang][algoKey];
+    let langTemplates = CODE_TEMPLATES[lang];
+    if (!langTemplates || !langTemplates[algoKey]) {
+      // Fallback: show JavaScript code template if specific language is missing
+      langTemplates = CODE_TEMPLATES["javascript"];
+    }
+    const codeLines = langTemplates && langTemplates[algoKey];
 
     if (!pseudoLines || !codeLines) {
       pseudoPanel.innerHTML = "";
@@ -3022,6 +3723,17 @@ window.addEventListener("DOMContentLoaded", () => {
   algorithmSelect.addEventListener("change", () => {
     renderPseudoAndCode();
     clearSteps();
+    // Update panel title based on algorithm
+    const algoKey = algorithmSelect.value;
+    const parentSubgraphTitle = document.getElementById("parent-subgraph-title");
+    if (parentSubgraphTitle) {
+      // MST algorithms: prim, kruskal
+      if (algoKey === "prim" || algoKey === "kruskal") {
+        parentSubgraphTitle.textContent = "MST (Minimum Spanning Tree)";
+      } else {
+        parentSubgraphTitle.textContent = "Parent Subgraph";
+      }
+    }
   });
   languageSelect.addEventListener("change", () => {
     renderPseudoAndCode();
@@ -3497,9 +4209,26 @@ window.addEventListener("DOMContentLoaded", () => {
       timeO = "O(V log V + E)";
       spaceO = "O(V)";
       if (n > 0 && m > 0) {
-        const timeVal = n * Math.log2(n) + m;
+        const timeVal = n * Math.log2(Math.max(n, 2)) + m;
         timeActual = ` = O(${n} log ${n} + ${m}) ≈ ${Math.round(timeVal)}`;
         spaceActual = ` = O(${n}) = ${n}`;
+      }
+    } else if (algoKey === "prim") {
+      timeO = "O(V log V + E)";
+      spaceO = "O(V)";
+      if (n > 0 && m > 0) {
+        const timeVal = n * Math.log2(Math.max(n, 2)) + m;
+        timeActual = ` = O(${n} log ${n} + ${m}) ≈ ${Math.round(timeVal)}`;
+        spaceActual = ` = O(${n}) = ${n}`;
+      }
+    } else if (algoKey === "bfs" || algoKey === "dfs") {
+      timeO = "O(V + E)";
+      spaceO = "O(V + E)";
+      if (n > 0 && m > 0) {
+        const timeVal = n + m;
+        const spaceVal = n + m;
+        timeActual = ` = O(${n} + ${m}) = ${timeVal}`;
+        spaceActual = ` = O(${n} + ${m}) = ${spaceVal}`;
       }
     }
 
@@ -3574,15 +4303,21 @@ window.addEventListener("DOMContentLoaded", () => {
     if (!steps.length) {
       const algo = algorithmSelect.value;
       if (algo === "relaxation") {
-        steps = createRelaxationSteps(source, "relaxation");
+        steps = createRelaxationSteps(source, "relaxation", computeGraphFromState);
       } else if (algo === "bellman-ford") {
-        steps = createBellmanFordSteps(source, false);
+        steps = createBellmanFordSteps(source, false, computeGraphFromState);
       } else if (algo === "bellman-ford-fifo") {
-        steps = createBellmanFordSteps(source, true);
+        steps = createBellmanFordSteps(source, true, computeGraphFromState);
       } else if (algo === "dijkstra") {
-        steps = createDijkstraSteps(source);
+        steps = createDijkstraSteps(source, computeGraphFromState);
+      } else if (algo === "prim") {
+        steps = createPrimSteps(source, computeGraphFromState);
+      } else if (algo === "bfs") {
+        steps = createBFSSteps(source, computeGraphFromState);
+      } else if (algo === "dfs") {
+        steps = createDFSSteps(source, computeGraphFromState);
       } else {
-        steps = createBellmanFordSteps(source, true);
+        steps = createBellmanFordSteps(source, true, computeGraphFromState);
       }
       stepTotalLabel.textContent = String(steps.length);
       currentStepIndex = 0;
@@ -3645,7 +4380,8 @@ window.addEventListener("DOMContentLoaded", () => {
   });
 
   // --- Algorithm Information ----------------------------------------------
-  const ALGORITHM_INFO = {
+  // ALGORITHM_INFO is now imported from algorithm-info/info.js
+  const ALGORITHM_INFO_OLD = {
     relaxation: {
       description: "Single-Source Shortest Path using relaxation technique. Iteratively relaxes all edges (V-1) times to find shortest paths from a source node.",
       useCases: "• Works for graphs with negative edges\n• Simple to understand\n• Good for small graphs\n• Can detect some negative cycles",
@@ -3665,6 +4401,21 @@ window.addEventListener("DOMContentLoaded", () => {
       description: "Dijkstra's algorithm finds shortest paths from a source to all nodes using a greedy approach with a priority queue. Requires non-negative edge weights.",
       useCases: "• Graphs with non-negative edge weights\n• Faster than Bellman-Ford for dense graphs\n• GPS navigation systems\n• Network routing (OSPF, IS-IS)\n• Social network analysis",
       differences: "Uses a priority queue to always process the closest unvisited node first. Greedy approach ensures optimality for non-negative weights. Time complexity O(V log V + E) with binary heap."
+    },
+    prim: {
+      description: "Prim's algorithm constructs a Minimum Spanning Tree (MST) by greedily adding the minimum-weight edge that connects a node in the MST to a node outside it. Works on connected, undirected graphs.",
+      useCases: "• Finding minimum spanning trees\n• Network design (minimum cost connections)\n• Cluster analysis\n• Approximation algorithms\n• Circuit design",
+      differences: "Similar to Dijkstra's but builds an MST instead of shortest paths. Always picks the minimum-weight edge connecting MST to non-MST nodes. Time complexity O(V log V + E) with binary heap."
+    },
+    bfs: {
+      description: "Breadth-First Search (BFS) explores the graph level by level from a source node, discovering all nodes at distance 1, then distance 2, and so on.",
+      useCases: "• Shortest paths in unweighted graphs\n• Level-order traversal of trees\n• Finding connected components\n• Social network \"degrees of separation\" queries",
+      differences: "Uses a FIFO queue and always expands the current frontier before moving to the next. For unweighted graphs, BFS gives true shortest path trees in O(V + E)."
+    },
+    dfs: {
+      description: "Depth-First Search (DFS) explores as far as possible along each branch before backtracking, building a depth-first spanning tree.",
+      useCases: "• Detecting cycles\n• Topological sorting (on DAGs)\n• Finding connected components\n• Exploring and generating mazes/trees",
+      differences: "Uses an implicit or explicit stack instead of a queue. DFS follows one path deeply before exploring siblings, producing a DFS tree that can differ significantly from BFS or shortest-path trees."
     },
   };
 
@@ -4171,21 +4922,27 @@ window.addEventListener("DOMContentLoaded", () => {
       return;
     }
     
-    const algorithms = ["relaxation", "bellman-ford", "bellman-ford-fifo"];
+    const algorithms = ["relaxation", "bellman-ford", "bellman-ford-fifo", "dijkstra", "bfs", "dfs"];
     comparisonContent.innerHTML = "";
     
     algorithms.forEach(algo => {
       try {
         let algoSteps = [];
-        if (algo === "relaxation") {
-          algoSteps = createRelaxationSteps(source, "relaxation");
-        } else if (algo === "bellman-ford") {
-          algoSteps = createBellmanFordSteps(source, false);
-        } else if (algo === "bellman-ford-fifo") {
-          algoSteps = createBellmanFordSteps(source, true);
-        } else if (algo === "dijkstra") {
-          algoSteps = createDijkstraSteps(source);
-        }
+          if (algo === "relaxation") {
+            algoSteps = createRelaxationSteps(source, "relaxation", computeGraphFromState);
+          } else if (algo === "bellman-ford") {
+            algoSteps = createBellmanFordSteps(source, false, computeGraphFromState);
+          } else if (algo === "bellman-ford-fifo") {
+            algoSteps = createBellmanFordSteps(source, true, computeGraphFromState);
+          } else if (algo === "dijkstra") {
+            algoSteps = createDijkstraSteps(source, computeGraphFromState);
+          } else if (algo === "prim") {
+            algoSteps = createPrimSteps(source, computeGraphFromState);
+          } else if (algo === "bfs") {
+            algoSteps = createBFSSteps(source, computeGraphFromState);
+          } else if (algo === "dfs") {
+            algoSteps = createDFSSteps(source, computeGraphFromState);
+          }
         
         const finalStep = algoSteps[algoSteps.length - 1];
         const relaxations = algoSteps.filter(s => s.relaxedNode !== null).length;
@@ -4204,7 +4961,13 @@ window.addEventListener("DOMContentLoaded", () => {
           </div>
           <div class="stat-row">
             <span>Time Complexity:</span>
-            <span>${algo === "dijkstra" ? "O(V log V + E)" : "O(V · E)"}</span>
+            <span>${
+              algo === "dijkstra" || algo === "prim"
+                ? "O(V log V + E)"
+                : algo === "bfs" || algo === "dfs"
+                ? "O(V + E)"
+                : "O(V · E)"
+            }</span>
           </div>
         `;
         comparisonContent.appendChild(item);
@@ -4347,6 +5110,16 @@ window.addEventListener("DOMContentLoaded", () => {
   }
   
   renderPseudoAndCode();
+  // Set initial panel title based on selected algorithm
+  const initialAlgoKey = algorithmSelect.value;
+  const parentSubgraphTitle = document.getElementById("parent-subgraph-title");
+  if (parentSubgraphTitle) {
+    if (initialAlgoKey === "prim" || initialAlgoKey === "kruskal") {
+      parentSubgraphTitle.textContent = "MST (Minimum Spanning Tree)";
+    } else {
+      parentSubgraphTitle.textContent = "Parent Subgraph";
+    }
+  }
   if (speedValueLabel && speedRange) {
     speedValueLabel.textContent = `${parseFloat(speedRange.value).toFixed(1)}x`;
     speedRange.addEventListener("input", () => {
