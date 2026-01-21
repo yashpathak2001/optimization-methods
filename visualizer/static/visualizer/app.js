@@ -1330,6 +1330,30 @@ window.addEventListener("DOMContentLoaded", () => {
         text: "          if v not in Q: push_back(Q, v)",
       },
     ],
+    dijkstra: [
+      { key: "dijkstra_init", text: "for each vertex v: d[v] = ∞, parent[v] = NIL" },
+      { key: "dijkstra_init", text: "d[s] = 0" },
+      { key: "dijkstra_init", text: "initialize priority queue PQ with (0, s)" },
+      { key: "dijkstra_extract", text: "while PQ not empty:" },
+      { key: "dijkstra_extract", text: "  (dist_u, u) = extract_min(PQ)" },
+      { key: "dijkstra_extract", text: "  if dist_u > d[u]: continue  // skip outdated entry" },
+      {
+        key: "dijkstra_relax",
+        text: "  for each outgoing edge (u,v,w):",
+      },
+      {
+        key: "dijkstra_relax",
+        text: "      if d[u] + w < d[v]:",
+      },
+      {
+        key: "dijkstra_relax",
+        text: "          d[v] = d[u] + w; parent[v] = u",
+      },
+      {
+        key: "dijkstra_relax",
+        text: "          insert(PQ, (d[v], v))",
+      },
+    ],
   };
 
   const CODE_TEMPLATES = {
@@ -1387,6 +1411,25 @@ window.addEventListener("DOMContentLoaded", () => {
         { key: "fifo_relax", text: "  }" },
         { key: "fifo_pop", text: "}" },
       ],
+      dijkstra: [
+        { key: "dijkstra_init", text: "#include <queue>" },
+        { key: "dijkstra_init", text: "#include <vector>" },
+        { key: "dijkstra_init", text: "vector<double> d(n, INF); vector<int> parent(n, -1);" },
+        { key: "dijkstra_init", text: "d[s] = 0;" },
+        { key: "dijkstra_init", text: "priority_queue<pair<double, int>, vector<pair<double, int>>, greater<>> pq;" },
+        { key: "dijkstra_init", text: "pq.push({0, s});" },
+        { key: "dijkstra_extract", text: "while (!pq.empty()) {" },
+        { key: "dijkstra_extract", text: "  auto [dist_u, u] = pq.top(); pq.pop();" },
+        { key: "dijkstra_extract", text: "  if (dist_u > d[u]) continue;" },
+        { key: "dijkstra_relax", text: "  for (auto &[v, w] : adj[u]) {" },
+        { key: "dijkstra_relax", text: "      if (d[u] + w < d[v]) {" },
+        { key: "dijkstra_relax", text: "          d[v] = d[u] + w; parent[v] = u;" },
+        { key: "dijkstra_relax", text: "          pq.push({d[v], v});" },
+        { key: "dijkstra_relax", text: "      }" },
+        { key: "dijkstra_relax", text: "  }" },
+        { key: "dijkstra_extract", text: "}" },
+        { key: "dijkstra_done", text: "// All reachable nodes processed" },
+      ],
     },
     c: {
       relaxation: [
@@ -1437,6 +1480,24 @@ window.addEventListener("DOMContentLoaded", () => {
         { key: "fifo_relax", text: "    }" },
         { key: "fifo_relax", text: "  }" },
         { key: "fifo_pop", text: "}" },
+      ],
+      dijkstra: [
+        { key: "dijkstra_init", text: "// Note: C doesn't have built-in priority queue" },
+        { key: "dijkstra_init", text: "// Use a min-heap implementation or array-based approach" },
+        { key: "dijkstra_init", text: "double d[n]; int parent[n]; bool visited[n];" },
+        { key: "dijkstra_init", text: "for (int i = 0; i < n; i++) { d[i] = INF; parent[i] = -1; visited[i] = false; }" },
+        { key: "dijkstra_init", text: "d[s] = 0;" },
+        { key: "dijkstra_extract", text: "for (int count = 0; count < n; count++) {" },
+        { key: "dijkstra_extract", text: "  int u = -1; double min_dist = INF;" },
+        { key: "dijkstra_extract", text: "  for (int i = 0; i < n; i++)" },
+        { key: "dijkstra_extract", text: "      if (!visited[i] && d[i] < min_dist) { u = i; min_dist = d[i]; }" },
+        { key: "dijkstra_extract", text: "  if (u == -1) break; visited[u] = true;" },
+        { key: "dijkstra_relax", text: "  for (each edge (u, v, w) in adj[u]) {" },
+        { key: "dijkstra_relax", text: "      if (!visited[v] && d[u] + w < d[v]) {" },
+        { key: "dijkstra_relax", text: "          d[v] = d[u] + w; parent[v] = u;" },
+        { key: "dijkstra_relax", text: "      }" },
+        { key: "dijkstra_relax", text: "  }" },
+        { key: "dijkstra_extract", text: "}" },
       ],
     },
     java: {
@@ -1497,6 +1558,26 @@ window.addEventListener("DOMContentLoaded", () => {
         { key: "fifo_relax", text: "  }" },
         { key: "fifo_pop", text: "}" },
       ],
+      dijkstra: [
+        { key: "dijkstra_init", text: "import java.util.*;" },
+        { key: "dijkstra_init", text: "double[] d = new double[n]; int[] parent = new int[n];" },
+        { key: "dijkstra_init", text: "Arrays.fill(d, Double.POSITIVE_INFINITY); Arrays.fill(parent, -1);" },
+        { key: "dijkstra_init", text: "d[s] = 0;" },
+        { key: "dijkstra_init", text: "PriorityQueue<int[]> pq = new PriorityQueue<>((a, b) -> Double.compare(a[0], b[0]));" },
+        { key: "dijkstra_init", text: "pq.offer(new int[]{0, s});" },
+        { key: "dijkstra_extract", text: "while (!pq.isEmpty()) {" },
+        { key: "dijkstra_extract", text: "  int[] curr = pq.poll(); double dist_u = curr[0]; int u = curr[1];" },
+        { key: "dijkstra_extract", text: "  if (dist_u > d[u]) continue;" },
+        { key: "dijkstra_relax", text: "  for (Edge e : adj[u]) {" },
+        { key: "dijkstra_relax", text: "      int v = e.v; double w = e.w;" },
+        { key: "dijkstra_relax", text: "      if (d[u] + w < d[v]) {" },
+        { key: "dijkstra_relax", text: "          d[v] = d[u] + w; parent[v] = u;" },
+        { key: "dijkstra_relax", text: "          pq.offer(new int[]{(int)d[v], v});" },
+        { key: "dijkstra_relax", text: "      }" },
+        { key: "dijkstra_relax", text: "  }" },
+        { key: "dijkstra_extract", text: "}" },
+        { key: "dijkstra_done", text: "// All reachable nodes processed" },
+      ],
     },
     python: {
       relaxation: [
@@ -1534,6 +1615,20 @@ window.addEventListener("DOMContentLoaded", () => {
         { key: "fifo_relax", text: "      if d[u] + w < d[v]:" },
         { key: "fifo_relax", text: "          d[v] = d[u] + w; parent[v] = u" },
         { key: "fifo_relax", text: "          if not inQ[v]: Q.append(v); inQ[v] = True" },
+      ],
+      dijkstra: [
+        { key: "dijkstra_init", text: "import heapq" },
+        { key: "dijkstra_init", text: "d = {v: float('inf') for v in V}; parent = {v: None for v in V}" },
+        { key: "dijkstra_init", text: "d[s] = 0" },
+        { key: "dijkstra_init", text: "pq = [(0, s)]" },
+        { key: "dijkstra_extract", text: "while pq:" },
+        { key: "dijkstra_extract", text: "  dist_u, u = heapq.heappop(pq)" },
+        { key: "dijkstra_extract", text: "  if dist_u > d[u]: continue" },
+        { key: "dijkstra_relax", text: "  for (v, w) in adj[u]:" },
+        { key: "dijkstra_relax", text: "      if d[u] + w < d[v]:" },
+        { key: "dijkstra_relax", text: "          d[v] = d[u] + w; parent[v] = u" },
+        { key: "dijkstra_relax", text: "          heapq.heappush(pq, (d[v], v))" },
+        { key: "dijkstra_done", text: "# All reachable nodes processed" },
       ],
     },
     rust: {
@@ -1583,6 +1678,22 @@ window.addEventListener("DOMContentLoaded", () => {
         { key: "fifo_neg_cycle", text: "  if d[u] + w < d[v] { println!(\"negative cycle\"); }" },
         { key: "fifo_check_edge", text: "}" },
       ],
+      dijkstra: [
+        { key: "dijkstra_init", text: "use std::collections::BinaryHeap;" },
+        { key: "dijkstra_init", text: "let mut d = vec![f64::INFINITY; n]; let mut parent = vec![None; n];" },
+        { key: "dijkstra_init", text: "d[s] = 0.0;" },
+        { key: "dijkstra_init", text: "let mut pq = BinaryHeap::new();" },
+        { key: "dijkstra_init", text: "pq.push(std::cmp::Reverse((0.0, s)));" },
+        { key: "dijkstra_extract", text: "while let Some(std::cmp::Reverse((dist_u, u))) = pq.pop() {" },
+        { key: "dijkstra_extract", text: "  if dist_u > d[u] { continue; }" },
+        { key: "dijkstra_relax", text: "  for &(v, w) in &adj[u] {" },
+        { key: "dijkstra_relax", text: "      if d[u] + w < d[v] {" },
+        { key: "dijkstra_relax", text: "          d[v] = d[u] + w; parent[v] = Some(u);" },
+        { key: "dijkstra_relax", text: "          pq.push(std::cmp::Reverse((d[v], v)));" },
+        { key: "dijkstra_relax", text: "      }" },
+        { key: "dijkstra_relax", text: "  }" },
+        { key: "dijkstra_extract", text: "}" },
+      ],
     },
     javascript: {
       relaxation: [
@@ -1629,6 +1740,23 @@ window.addEventListener("DOMContentLoaded", () => {
         { key: "fifo_neg_cycle", text: "  if (d[u] + w < d[v]) console.log('negative cycle');" },
         { key: "fifo_check_edge", text: "}" },
       ],
+      dijkstra: [
+        { key: "dijkstra_init", text: "const d = Array(n).fill(Infinity); const parent = Array(n).fill(null);" },
+        { key: "dijkstra_init", text: "d[s] = 0;" },
+        { key: "dijkstra_init", text: "const pq = [[0, s]];" },
+        { key: "dijkstra_extract", text: "while (pq.length > 0) {" },
+        { key: "dijkstra_extract", text: "  pq.sort((a, b) => a[0] - b[0]);" },
+        { key: "dijkstra_extract", text: "  const [dist_u, u] = pq.shift();" },
+        { key: "dijkstra_extract", text: "  if (dist_u > d[u]) continue;" },
+        { key: "dijkstra_relax", text: "  for (const [v, w] of adj[u]) {" },
+        { key: "dijkstra_relax", text: "      if (d[u] + w < d[v]) {" },
+        { key: "dijkstra_relax", text: "          d[v] = d[u] + w; parent[v] = u;" },
+        { key: "dijkstra_relax", text: "          pq.push([d[v], v]);" },
+        { key: "dijkstra_relax", text: "      }" },
+        { key: "dijkstra_relax", text: "  }" },
+        { key: "dijkstra_extract", text: "}" },
+        { key: "dijkstra_done", text: "// All reachable nodes processed" },
+      ],
     },
     typescript: {
       relaxation: [
@@ -1674,6 +1802,22 @@ window.addEventListener("DOMContentLoaded", () => {
         { key: "fifo_check_edge", text: "for (const [u, v, w]: [number, number, number] of edges) {" },
         { key: "fifo_neg_cycle", text: "  if (d[u] + w < d[v]) console.log('negative cycle');" },
         { key: "fifo_check_edge", text: "}" },
+      ],
+      dijkstra: [
+        { key: "dijkstra_init", text: "const d: number[] = Array(n).fill(Infinity); const parent: (number | null)[] = Array(n).fill(null);" },
+        { key: "dijkstra_init", text: "d[s] = 0;" },
+        { key: "dijkstra_init", text: "const pq: [number, number][] = [[0, s]];" },
+        { key: "dijkstra_extract", text: "while (pq.length > 0) {" },
+        { key: "dijkstra_extract", text: "  pq.sort((a, b) => a[0] - b[0]);" },
+        { key: "dijkstra_extract", text: "  const [dist_u, u] = pq.shift()!;" },
+        { key: "dijkstra_extract", text: "  if (dist_u > d[u]) continue;" },
+        { key: "dijkstra_relax", text: "  for (const [v, w]: [number, number] of adj[u]) {" },
+        { key: "dijkstra_relax", text: "      if (d[u] + w < d[v]) {" },
+        { key: "dijkstra_relax", text: "          d[v] = d[u] + w; parent[v] = u;" },
+        { key: "dijkstra_relax", text: "          pq.push([d[v], v]);" },
+        { key: "dijkstra_relax", text: "      }" },
+        { key: "dijkstra_relax", text: "  }" },
+        { key: "dijkstra_extract", text: "}" },
       ],
     },
     go: {
@@ -1726,6 +1870,24 @@ window.addEventListener("DOMContentLoaded", () => {
         { key: "fifo_neg_cycle", text: "  if d[e.u] + e.w < d[e.v] { fmt.Println(\"negative cycle\") }" },
         { key: "fifo_check_edge", text: "}" },
       ],
+      dijkstra: [
+        { key: "dijkstra_init", text: "import (\"container/heap\")" },
+        { key: "dijkstra_init", text: "d := make([]float64, n); parent := make([]int, n)" },
+        { key: "dijkstra_init", text: "for i := range d { d[i] = math.Inf(1); parent[i] = -1 }" },
+        { key: "dijkstra_init", text: "d[s] = 0" },
+        { key: "dijkstra_init", text: "pq := &PriorityQueue{}; heap.Init(pq); heap.Push(pq, Item{0, s})" },
+        { key: "dijkstra_extract", text: "for pq.Len() > 0 {" },
+        { key: "dijkstra_extract", text: "  item := heap.Pop(pq).(Item); dist_u, u := item.priority, item.value" },
+        { key: "dijkstra_extract", text: "  if dist_u > d[u] { continue }" },
+        { key: "dijkstra_relax", text: "  for _, e := range adj[u] {" },
+        { key: "dijkstra_relax", text: "      v, w := e.v, e.w" },
+        { key: "dijkstra_relax", text: "      if d[u] + w < d[v] {" },
+        { key: "dijkstra_relax", text: "          d[v] = d[u] + w; parent[v] = u" },
+        { key: "dijkstra_relax", text: "          heap.Push(pq, Item{d[v], v})" },
+        { key: "dijkstra_relax", text: "      }" },
+        { key: "dijkstra_relax", text: "  }" },
+        { key: "dijkstra_extract", text: "}" },
+      ],
     },
     kotlin: {
       relaxation: [
@@ -1770,6 +1932,24 @@ window.addEventListener("DOMContentLoaded", () => {
         { key: "fifo_relax", text: "      }" },
         { key: "fifo_relax", text: "  }" },
         { key: "fifo_pop", text: "}" },
+      ],
+      dijkstra: [
+        { key: "dijkstra_init", text: "import java.util.*" },
+        { key: "dijkstra_init", text: "val d = DoubleArray(n) { Double.POSITIVE_INFINITY }" },
+        { key: "dijkstra_init", text: "val parent = IntArray(n) { -1 }" },
+        { key: "dijkstra_init", text: "d[s] = 0.0" },
+        { key: "dijkstra_init", text: "val pq = PriorityQueue<Pair<Double, Int>>(compareBy { it.first })" },
+        { key: "dijkstra_init", text: "pq.add(0.0 to s)" },
+        { key: "dijkstra_extract", text: "while (pq.isNotEmpty()) {" },
+        { key: "dijkstra_extract", text: "  val (dist_u, u) = pq.poll()" },
+        { key: "dijkstra_extract", text: "  if (dist_u > d[u]) continue" },
+        { key: "dijkstra_relax", text: "  adj[u].forEach { (v, w) ->" },
+        { key: "dijkstra_relax", text: "      if (d[u] + w < d[v]) {" },
+        { key: "dijkstra_relax", text: "          d[v] = d[u] + w; parent[v] = u" },
+        { key: "dijkstra_relax", text: "          pq.add(d[v] to v)" },
+        { key: "dijkstra_relax", text: "      }" },
+        { key: "dijkstra_relax", text: "  }" },
+        { key: "dijkstra_extract", text: "}" },
       ],
     },
     swift: {
@@ -1820,6 +2000,24 @@ window.addEventListener("DOMContentLoaded", () => {
         { key: "fifo_neg_cycle", text: "  if d[u] + w < d[v] { print(\"negative cycle\") }" },
         { key: "fifo_check_edge", text: "}" },
       ],
+      dijkstra: [
+        { key: "dijkstra_init", text: "import Foundation" },
+        { key: "dijkstra_init", text: "var d = Array(repeating: Double.infinity, count: n)" },
+        { key: "dijkstra_init", text: "var parent = Array(repeating: -1, count: n)" },
+        { key: "dijkstra_init", text: "d[s] = 0" },
+        { key: "dijkstra_init", text: "var pq = [(0.0, s)]" },
+        { key: "dijkstra_extract", text: "while !pq.isEmpty {" },
+        { key: "dijkstra_extract", text: "  pq.sort { $0.0 < $1.0 }" },
+        { key: "dijkstra_extract", text: "  let (dist_u, u) = pq.removeFirst()" },
+        { key: "dijkstra_extract", text: "  if dist_u > d[u] { continue }" },
+        { key: "dijkstra_relax", text: "  for (v, w) in adj[u] {" },
+        { key: "dijkstra_relax", text: "      if d[u] + w < d[v] {" },
+        { key: "dijkstra_relax", text: "          d[v] = d[u] + w; parent[v] = u" },
+        { key: "dijkstra_relax", text: "          pq.append((d[v], v))" },
+        { key: "dijkstra_relax", text: "      }" },
+        { key: "dijkstra_relax", text: "  }" },
+        { key: "dijkstra_extract", text: "}" },
+      ],
     },
     csharp: {
       relaxation: [
@@ -1865,6 +2063,24 @@ window.addEventListener("DOMContentLoaded", () => {
         { key: "fifo_check_edge", text: "foreach (var (u, v, w) in edges) {" },
         { key: "fifo_neg_cycle", text: "  if (d[u] + w < d[v]) Console.WriteLine(\"negative cycle\");" },
         { key: "fifo_check_edge", text: "}" },
+      ],
+      dijkstra: [
+        { key: "dijkstra_init", text: "using System.Collections.Generic;" },
+        { key: "dijkstra_init", text: "double[] d = new double[n]; int[] parent = new int[n];" },
+        { key: "dijkstra_init", text: "Array.Fill(d, double.PositiveInfinity); Array.Fill(parent, -1);" },
+        { key: "dijkstra_init", text: "d[s] = 0;" },
+        { key: "dijkstra_init", text: "var pq = new PriorityQueue<int, double>();" },
+        { key: "dijkstra_init", text: "pq.Enqueue(s, 0);" },
+        { key: "dijkstra_extract", text: "while (pq.Count > 0) {" },
+        { key: "dijkstra_extract", text: "  pq.TryDequeue(out int u, out double dist_u);" },
+        { key: "dijkstra_extract", text: "  if (dist_u > d[u]) continue;" },
+        { key: "dijkstra_relax", text: "  foreach (var (v, w) in adj[u]) {" },
+        { key: "dijkstra_relax", text: "      if (d[u] + w < d[v]) {" },
+        { key: "dijkstra_relax", text: "          d[v] = d[u] + w; parent[v] = u;" },
+        { key: "dijkstra_relax", text: "          pq.Enqueue(v, d[v]);" },
+        { key: "dijkstra_relax", text: "      }" },
+        { key: "dijkstra_relax", text: "  }" },
+        { key: "dijkstra_extract", text: "}" },
       ],
     },
     ruby: {
@@ -1958,6 +2174,22 @@ window.addEventListener("DOMContentLoaded", () => {
         { key: "fifo_neg_cycle", text: "  if ($d[$u] + $w < $d[$v]) echo 'negative cycle';" },
         { key: "fifo_check_edge", text: "}" },
       ],
+      dijkstra: [
+        { key: "dijkstra_init", text: "$d = array_fill(0, $n, INF); $parent = array_fill(0, $n, -1);" },
+        { key: "dijkstra_init", text: "$d[$s] = 0;" },
+        { key: "dijkstra_init", text: "$pq = new SplPriorityQueue(); $pq->setExtractFlags(SplPriorityQueue::EXTR_BOTH);" },
+        { key: "dijkstra_init", text: "$pq->insert($s, 0);" },
+        { key: "dijkstra_extract", text: "while (!$pq->isEmpty()) {" },
+        { key: "dijkstra_extract", text: "  $item = $pq->extract(); $u = $item['data']; $dist_u = -$item['priority'];" },
+        { key: "dijkstra_extract", text: "  if ($dist_u > $d[$u]) continue;" },
+        { key: "dijkstra_relax", text: "  foreach ($adj[$u] as $v => $w) {" },
+        { key: "dijkstra_relax", text: "      if ($d[$u] + $w < $d[$v]) {" },
+        { key: "dijkstra_relax", text: "          $d[$v] = $d[$u] + $w; $parent[$v] = $u;" },
+        { key: "dijkstra_relax", text: "          $pq->insert($v, -$d[$v]);" },
+        { key: "dijkstra_relax", text: "      }" },
+        { key: "dijkstra_relax", text: "  }" },
+        { key: "dijkstra_extract", text: "}" },
+      ],
     },
     scala: {
       relaxation: [
@@ -2005,6 +2237,23 @@ window.addEventListener("DOMContentLoaded", () => {
         { key: "fifo_neg_cycle", text: "  if (d(u) + w < d(v)) println(\"negative cycle\")" },
         { key: "fifo_check_edge", text: "}" },
       ],
+      dijkstra: [
+        { key: "dijkstra_init", text: "import scala.collection.mutable" },
+        { key: "dijkstra_init", text: "val d = Array.fill(n)(Double.PositiveInfinity)" },
+        { key: "dijkstra_init", text: "val parent = Array.fill(n)(-1)" },
+        { key: "dijkstra_init", text: "d(s) = 0.0" },
+        { key: "dijkstra_init", text: "val pq = mutable.PriorityQueue((0.0, s))(Ordering.by(-_._1))" },
+        { key: "dijkstra_extract", text: "while (pq.nonEmpty) {" },
+        { key: "dijkstra_extract", text: "  val (dist_u, u) = pq.dequeue" },
+        { key: "dijkstra_extract", text: "  if (dist_u > d(u)) return" },
+        { key: "dijkstra_relax", text: "  adj(u).foreach { case (v, w) =>" },
+        { key: "dijkstra_relax", text: "      if (d(u) + w < d(v)) {" },
+        { key: "dijkstra_relax", text: "          d(v) = d(u) + w; parent(v) = u" },
+        { key: "dijkstra_relax", text: "          pq.enqueue((d(v), v))" },
+        { key: "dijkstra_relax", text: "      }" },
+        { key: "dijkstra_relax", text: "  }" },
+        { key: "dijkstra_extract", text: "}" },
+      ],
     },
     haskell: {
       relaxation: [
@@ -2033,6 +2282,22 @@ window.addEventListener("DOMContentLoaded", () => {
         { key: "fifo_pop", text: "bfFIFO q inQ d p | null q = (d, p)" },
         { key: "fifo_pop", text: "              | otherwise = let (u:qs) = q in process u qs" },
         { key: "fifo_relax", text: "process u qs = foldl relaxEdge (qs, d, p) (adj u)" },
+      ],
+      dijkstra: [
+        { key: "dijkstra_init", text: "import Data.Heap (MinHeap, empty, insert, view)" },
+        { key: "dijkstra_init", text: "import qualified Data.Heap as H" },
+        { key: "dijkstra_init", text: "let d = replicate n (1/0) in let parent = replicate n (-1) in" },
+        { key: "dijkstra_init", text: "let d' = update d s 0 in" },
+        { key: "dijkstra_init", text: "let pq = H.singleton (0, s) in" },
+        { key: "dijkstra_extract", text: "dijkstra d parent pq = case H.view pq of" },
+        { key: "dijkstra_extract", text: "  Nothing -> (d, parent)" },
+        { key: "dijkstra_extract", text: "  Just ((dist_u, u), pq') ->" },
+        { key: "dijkstra_extract", text: "    if dist_u > d !! u then dijkstra d parent pq'" },
+        { key: "dijkstra_relax", text: "    else let relax (v, w) (d'', parent'', pq'') =" },
+        { key: "dijkstra_relax", text: "            if d'' !! u + w < d'' !! v then" },
+        { key: "dijkstra_relax", text: "              (update d'' v (d'' !! u + w), update parent'' v u, H.insert (d'' !! u + w, v) pq'')" },
+        { key: "dijkstra_relax", text: "            else (d'', parent'', pq'')" },
+        { key: "dijkstra_relax", text: "          in foldr relax (d, parent, pq') (adj !! u)" },
       ],
     },
     ocaml: {
@@ -2080,6 +2345,23 @@ window.addEventListener("DOMContentLoaded", () => {
         { key: "fifo_relax", text: "  ) adj.(u)" },
         { key: "fifo_pop", text: "done" },
       ],
+      dijkstra: [
+        { key: "dijkstra_init", text: "module Heap = BatHeap" },
+        { key: "dijkstra_init", text: "let d = Array.make n infinity in" },
+        { key: "dijkstra_init", text: "let parent = Array.make n (-1) in" },
+        { key: "dijkstra_init", text: "d.(s) <- 0.0;" },
+        { key: "dijkstra_init", text: "let pq = Heap.empty |> Heap.insert (0.0, s) in" },
+        { key: "dijkstra_extract", text: "let rec dijkstra d parent pq = match Heap.find_min pq with" },
+        { key: "dijkstra_extract", text: "  | None -> (d, parent)" },
+        { key: "dijkstra_extract", text: "  | Some (dist_u, u) ->" },
+        { key: "dijkstra_extract", text: "    let pq' = Heap.delete_min pq in" },
+        { key: "dijkstra_extract", text: "    if dist_u > d.(u) then dijkstra d parent pq'" },
+        { key: "dijkstra_relax", text: "    else let relax (v, w) (d'', parent'', pq'') =" },
+        { key: "dijkstra_relax", text: "            if d''.(u) +. w < d''.(v) then" },
+        { key: "dijkstra_relax", text: "              (d''.(v) <- d''.(u) +. w; parent''.(v) <- u; Heap.insert (d''.(v), v) pq'')" },
+        { key: "dijkstra_relax", text: "            else (d'', parent'', pq'')" },
+        { key: "dijkstra_relax", text: "        in List.fold_right relax adj.(u) (d, parent, pq')" },
+      ],
     },
     fsharp: {
       relaxation: [
@@ -2126,6 +2408,21 @@ window.addEventListener("DOMContentLoaded", () => {
         { key: "fifo_relax", text: "  )" },
         { key: "fifo_pop", text: "done" },
       ],
+      dijkstra: [
+        { key: "dijkstra_init", text: "open System.Collections.Generic" },
+        { key: "dijkstra_init", text: "let d = Array.create n System.Double.MaxValue" },
+        { key: "dijkstra_init", text: "let parent = Array.create n -1" },
+        { key: "dijkstra_init", text: "d.[s] <- 0.0" },
+        { key: "dijkstra_init", text: "let pq = SortedSet<(float * int)>(compare)" },
+        { key: "dijkstra_init", text: "pq.Add((0.0, s)) |> ignore" },
+        { key: "dijkstra_extract", text: "while pq.Count > 0 do" },
+        { key: "dijkstra_extract", text: "  let (dist_u, u) = pq.Min; pq.Remove((dist_u, u)) |> ignore" },
+        { key: "dijkstra_extract", text: "  if dist_u > d.[u] then ()" },
+        { key: "dijkstra_relax", text: "  else adj.[u] |> List.iter (fun (v, w) ->" },
+        { key: "dijkstra_relax", text: "      if d.[u] + w < d.[v] then" },
+        { key: "dijkstra_relax", text: "        d.[v] <- d.[u] + w; parent.[v] <- u" },
+        { key: "dijkstra_relax", text: "        pq.Add((d.[v], v)) |> ignore)" },
+      ],
     },
     dart: {
       relaxation: [
@@ -2169,6 +2466,25 @@ window.addEventListener("DOMContentLoaded", () => {
         { key: "fifo_relax", text: "      }" },
         { key: "fifo_relax", text: "  }" },
         { key: "fifo_pop", text: "}" },
+      ],
+      dijkstra: [
+        { key: "dijkstra_init", text: "import 'dart:collection';" },
+        { key: "dijkstra_init", text: "List<double> d = List.filled(n, double.infinity);" },
+        { key: "dijkstra_init", text: "List<int> parent = List.filled(n, -1);" },
+        { key: "dijkstra_init", text: "d[s] = 0;" },
+        { key: "dijkstra_init", text: "var pq = PriorityQueue<MapEntry<int, double>>((a, b) => a.value.compareTo(b.value));" },
+        { key: "dijkstra_init", text: "pq.addEntry(MapEntry(s, 0));" },
+        { key: "dijkstra_extract", text: "while (pq.isNotEmpty) {" },
+        { key: "dijkstra_extract", text: "  var entry = pq.removeFirst(); int u = entry.key; double dist_u = entry.value;" },
+        { key: "dijkstra_extract", text: "  if (dist_u > d[u]) continue;" },
+        { key: "dijkstra_relax", text: "  for (var e in adj[u]) {" },
+        { key: "dijkstra_relax", text: "      int v = e[0]; double w = e[1];" },
+        { key: "dijkstra_relax", text: "      if (d[u] + w < d[v]) {" },
+        { key: "dijkstra_relax", text: "          d[v] = d[u] + w; parent[v] = u;" },
+        { key: "dijkstra_relax", text: "          pq.addEntry(MapEntry(v, d[v]));" },
+        { key: "dijkstra_relax", text: "      }" },
+        { key: "dijkstra_relax", text: "  }" },
+        { key: "dijkstra_extract", text: "}" },
       ],
     },
     lua: {
@@ -2261,6 +2577,24 @@ window.addEventListener("DOMContentLoaded", () => {
         { key: "fifo_relax", text: "  }" },
         { key: "fifo_pop", text: "}" },
       ],
+      dijkstra: [
+        { key: "dijkstra_init", text: "use strict; use warnings;" },
+        { key: "dijkstra_init", text: "my @d = (inf) x $n; my @parent = (-1) x $n;" },
+        { key: "dijkstra_init", text: "$d[$s] = 0;" },
+        { key: "dijkstra_init", text: "my @pq = ([0, $s]);" },
+        { key: "dijkstra_extract", text: "while (@pq) {" },
+        { key: "dijkstra_extract", text: "  @pq = sort { $a->[0] <=> $b->[0] } @pq;" },
+        { key: "dijkstra_extract", text: "  my ($dist_u, $u) = @{shift @pq};" },
+        { key: "dijkstra_extract", text: "  next if $dist_u > $d[$u];" },
+        { key: "dijkstra_relax", text: "  for my $edge (@{$adj[$u]}) {" },
+        { key: "dijkstra_relax", text: "      my ($v, $w) = @$edge;" },
+        { key: "dijkstra_relax", text: "      if ($d[$u] + $w < $d[$v]) {" },
+        { key: "dijkstra_relax", text: "          $d[$v] = $d[$u] + $w; $parent[$v] = $u;" },
+        { key: "dijkstra_relax", text: "          push @pq, [$d[$v], $v];" },
+        { key: "dijkstra_relax", text: "      }" },
+        { key: "dijkstra_relax", text: "  }" },
+        { key: "dijkstra_extract", text: "}" },
+      ],
     },
     r: {
       relaxation: [
@@ -2304,6 +2638,24 @@ window.addEventListener("DOMContentLoaded", () => {
         { key: "fifo_relax", text: "      }" },
         { key: "fifo_relax", text: "  }" },
         { key: "fifo_pop", text: "}" },
+      ],
+      dijkstra: [
+        { key: "dijkstra_init", text: "library(igraph)" },
+        { key: "dijkstra_init", text: "d <- rep(Inf, n); parent <- rep(NA, n)" },
+        { key: "dijkstra_init", text: "d[s] <- 0" },
+        { key: "dijkstra_init", text: "pq <- data.frame(dist = 0, node = s)" },
+        { key: "dijkstra_extract", text: "while (nrow(pq) > 0) {" },
+        { key: "dijkstra_extract", text: "  pq <- pq[order(pq$dist), ]" },
+        { key: "dijkstra_extract", text: "  dist_u <- pq$dist[1]; u <- pq$node[1]; pq <- pq[-1, ]" },
+        { key: "dijkstra_extract", text: "  if (dist_u > d[u]) next" },
+        { key: "dijkstra_relax", text: "  for (edge in adj[[u]]) {" },
+        { key: "dijkstra_relax", text: "      v <- edge$v; w <- edge$w" },
+        { key: "dijkstra_relax", text: "      if (d[u] + w < d[v]) {" },
+        { key: "dijkstra_relax", text: "          d[v] <- d[u] + w; parent[v] <- u" },
+        { key: "dijkstra_relax", text: "          pq <- rbind(pq, data.frame(dist = d[v], node = v))" },
+        { key: "dijkstra_relax", text: "      }" },
+        { key: "dijkstra_relax", text: "  }" },
+        { key: "dijkstra_extract", text: "}" },
       ],
     },
     matlab: {
@@ -2349,6 +2701,23 @@ window.addEventListener("DOMContentLoaded", () => {
         { key: "fifo_relax", text: "  end" },
         { key: "fifo_pop", text: "end" },
       ],
+      dijkstra: [
+        { key: "dijkstra_init", text: "d = inf(1, n); parent = zeros(1, n);" },
+        { key: "dijkstra_init", text: "d(s) = 0;" },
+        { key: "dijkstra_init", text: "pq = [0, s];" },
+        { key: "dijkstra_extract", text: "while ~isempty(pq)" },
+        { key: "dijkstra_extract", text: "  [~, idx] = min(pq(:, 1)); dist_u = pq(idx, 1); u = pq(idx, 2);" },
+        { key: "dijkstra_extract", text: "  pq(idx, :) = [];" },
+        { key: "dijkstra_extract", text: "  if dist_u > d(u), continue, end" },
+        { key: "dijkstra_relax", text: "  for edge = adj{u}" },
+        { key: "dijkstra_relax", text: "      v = edge(1); w = edge(2);" },
+        { key: "dijkstra_relax", text: "      if d(u) + w < d(v)" },
+        { key: "dijkstra_relax", text: "          d(v) = d(u) + w; parent(v) = u;" },
+        { key: "dijkstra_relax", text: "          pq = [pq; d(v), v];" },
+        { key: "dijkstra_relax", text: "      end" },
+        { key: "dijkstra_relax", text: "  end" },
+        { key: "dijkstra_extract", text: "end" },
+      ],
     },
     julia: {
       relaxation: [
@@ -2388,6 +2757,24 @@ window.addEventListener("DOMContentLoaded", () => {
         { key: "fifo_relax", text: "      end" },
         { key: "fifo_relax", text: "  end" },
         { key: "fifo_pop", text: "end" },
+      ],
+      dijkstra: [
+        { key: "dijkstra_init", text: "using DataStructures" },
+        { key: "dijkstra_init", text: "d = fill(Inf, n); parent = fill(nothing, n); visited = falses(n)" },
+        { key: "dijkstra_init", text: "d[s] = 0" },
+        { key: "dijkstra_init", text: "pq = PriorityQueue(Base.Order.Forward, [(d[s], s)])" },
+        { key: "dijkstra_extract", text: "while !isempty(pq)" },
+        { key: "dijkstra_extract", text: "  (dist_u, u) = dequeue!(pq)" },
+        { key: "dijkstra_extract", text: "  visited[u] && continue" },
+        { key: "dijkstra_extract", text: "  visited[u] = true" },
+        { key: "dijkstra_relax", text: "  for (v, w) in adj[u]" },
+        { key: "dijkstra_relax", text: "      visited[v] && continue" },
+        { key: "dijkstra_relax", text: "      if d[u] + w < d[v]" },
+        { key: "dijkstra_relax", text: "          d[v] = d[u] + w; parent[v] = u" },
+        { key: "dijkstra_relax", text: "          enqueue!(pq, d[v], v)" },
+        { key: "dijkstra_relax", text: "      end" },
+        { key: "dijkstra_relax", text: "  end" },
+        { key: "dijkstra_extract", text: "end" },
       ],
     },
   };
@@ -2569,7 +2956,13 @@ window.addEventListener("DOMContentLoaded", () => {
     const algoKey = algorithmSelect.value;
     const pseudoLines = PSEUDO_TEMPLATES[algoKey];
     const lang = languageSelect.value;
-    const codeLines = CODE_TEMPLATES[lang][algoKey];
+    const codeLines = CODE_TEMPLATES[lang] && CODE_TEMPLATES[lang][algoKey];
+
+    if (!pseudoLines || !codeLines) {
+      pseudoPanel.innerHTML = "";
+      codePanel.innerHTML = "";
+      return;
+    }
 
     // Render pseudo-code with syntax highlighting
     pseudoPanel.innerHTML = "";
@@ -3100,6 +3493,14 @@ window.addEventListener("DOMContentLoaded", () => {
         timeActual = ` = O(${n} · ${m}) = ${timeVal} (worst-case)`;
         spaceActual = ` = O(${n} + ${m}) = ${spaceVal}`;
       }
+    } else if (algoKey === "dijkstra") {
+      timeO = "O(V log V + E)";
+      spaceO = "O(V)";
+      if (n > 0 && m > 0) {
+        const timeVal = n * Math.log2(n) + m;
+        timeActual = ` = O(${n} log ${n} + ${m}) ≈ ${Math.round(timeVal)}`;
+        spaceActual = ` = O(${n}) = ${n}`;
+      }
     }
 
     // Update time complexity
@@ -3178,6 +3579,8 @@ window.addEventListener("DOMContentLoaded", () => {
         steps = createBellmanFordSteps(source, false);
       } else if (algo === "bellman-ford-fifo") {
         steps = createBellmanFordSteps(source, true);
+      } else if (algo === "dijkstra") {
+        steps = createDijkstraSteps(source);
       } else {
         steps = createBellmanFordSteps(source, true);
       }
@@ -3257,6 +3660,11 @@ window.addEventListener("DOMContentLoaded", () => {
       description: "Bellman-Ford optimized with FIFO queue. Only processes nodes whose distances were updated, potentially faster than standard Bellman-Ford.",
       useCases: "• Graphs with negative edges\n• When most nodes don't need updates\n• Faster than standard Bellman-Ford in practice\n• Network routing",
       differences: "Uses a queue to only process updated nodes, reducing unnecessary work. Still detects negative cycles."
+    },
+    dijkstra: {
+      description: "Dijkstra's algorithm finds shortest paths from a source to all nodes using a greedy approach with a priority queue. Requires non-negative edge weights.",
+      useCases: "• Graphs with non-negative edge weights\n• Faster than Bellman-Ford for dense graphs\n• GPS navigation systems\n• Network routing (OSPF, IS-IS)\n• Social network analysis",
+      differences: "Uses a priority queue to always process the closest unvisited node first. Greedy approach ensures optimality for non-negative weights. Time complexity O(V log V + E) with binary heap."
     },
   };
 
@@ -3775,6 +4183,8 @@ window.addEventListener("DOMContentLoaded", () => {
           algoSteps = createBellmanFordSteps(source, false);
         } else if (algo === "bellman-ford-fifo") {
           algoSteps = createBellmanFordSteps(source, true);
+        } else if (algo === "dijkstra") {
+          algoSteps = createDijkstraSteps(source);
         }
         
         const finalStep = algoSteps[algoSteps.length - 1];
