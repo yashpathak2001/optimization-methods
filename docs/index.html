@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+{% load static %}
 <html lang="en" data-theme="dark">
 <head>
     <meta charset="UTF-8" />
@@ -6,8 +7,8 @@
     <title>Optimization Methods Visualizer</title>
     <link rel="stylesheet" href="https://unpkg.com/@fontsource-variable/inter@5.0.20/index.css">
     <link rel="stylesheet" href="https://unpkg.com/@fontsource/fira-code@5.0.0/index.css">
-    <script type="module" src="static/visualizer/app.js"></script>
-    <link rel="stylesheet" href="static/visualizer/styles.css">
+    <script type="module" src="{% static 'visualizer/app.js' %}"></script>
+    <link rel="stylesheet" href="{% static 'visualizer/styles.css' %}">
     <script src="https://unpkg.com/vis-network@9.1.6/dist/vis-network.min.js"></script>
     <link href="https://unpkg.com/vis-network@9.1.6/styles/vis-network.min.css" rel="stylesheet" />
 </head>
@@ -16,7 +17,7 @@
     <header class="app-header">
         <div class="app-title">
             <span class="app-title-main">Optimization Methods</span>
-            <span class="app-title-sub">Shortest Path & Bellman-Ford Visual Studio</span>
+            <span class="app-title-sub">Graph Algorithms Visualizer</span>
         </div>
         <div class="app-controls">
             <div class="field-group horizontal">
@@ -345,3 +346,4 @@
 </div>
 </body>
 </html>
+

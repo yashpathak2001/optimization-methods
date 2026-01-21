@@ -13,7 +13,7 @@ import {
   createDFSSteps
 } from './algorithms/index.js';
 import { PSEUDO_TEMPLATES } from './pseudo-code/pseudo.js';
-import { CODE_TEMPLATES } from './code-templates/templates.js';
+import { CODE_TEMPLATES } from './code-templates/index.js';
 import { ALGORITHM_INFO } from './algorithm-info/info.js';
 
 // --- DOM helpers ---------------------------------------------------------
@@ -3727,8 +3727,8 @@ window.addEventListener("DOMContentLoaded", () => {
     const algoKey = algorithmSelect.value;
     const parentSubgraphTitle = document.getElementById("parent-subgraph-title");
     if (parentSubgraphTitle) {
-      // MST algorithms: prim, kruskal
-      if (algoKey === "prim" || algoKey === "kruskal") {
+      // MST algorithms: prim
+      if (algoKey === "prim") {
         parentSubgraphTitle.textContent = "MST (Minimum Spanning Tree)";
       } else {
         parentSubgraphTitle.textContent = "Parent Subgraph";
@@ -5114,7 +5114,7 @@ window.addEventListener("DOMContentLoaded", () => {
   const initialAlgoKey = algorithmSelect.value;
   const parentSubgraphTitle = document.getElementById("parent-subgraph-title");
   if (parentSubgraphTitle) {
-    if (initialAlgoKey === "prim" || initialAlgoKey === "kruskal") {
+    if (initialAlgoKey === "prim") {
       parentSubgraphTitle.textContent = "MST (Minimum Spanning Tree)";
     } else {
       parentSubgraphTitle.textContent = "Parent Subgraph";

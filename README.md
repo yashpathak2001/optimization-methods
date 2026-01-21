@@ -4,6 +4,23 @@
 [![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://www.python.org/)
 [![Django](https://img.shields.io/badge/Django-5.0+-green.svg)](https://www.djangoproject.com/)
 
+---
+
+## ⚠️ **BIG DISCLAIMER** ⚠️
+
+> **🚨 IMPORTANT: This application is entirely vibe coded. I don't have enough time to manually write code for this.**
+> 
+> This means:
+> - Code may be inconsistent or have quirks
+> - Features might work in unexpected ways
+> - Documentation might not always match reality
+> - Bugs are part of the experience
+> - Everything is subject to change based on vibes
+> 
+> **Use at your own risk!** If you find issues, feel free to report them, but understand that fixes will also be vibe-based. 🎨✨
+
+---
+
 An interactive web-based visualization tool for learning and understanding optimization algorithms, particularly shortest path algorithms like Bellman-Ford and relaxation methods. This tool is designed to help students visualize algorithm execution step-by-step.
 
 ## 🌟 Features
